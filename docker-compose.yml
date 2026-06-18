@@ -1,0 +1,33 @@
+services:
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: signal-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/signal-cli:/home/.local/share/signal-cli
+    environment:
+      - MODE=normal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  helmes-agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: helmes-agent
+    restart: unless-stopped
+    depends_on:
+      signal-api:
+        condition: service_healthy
+    volumes:
+      - ./data/agent:/data
+    env_file:
+      - .env
+    environment:
+      - SIGNAL_API_URL=http://signal-api:8080
