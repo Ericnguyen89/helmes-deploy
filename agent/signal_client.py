@@ -13,6 +13,7 @@ class SignalClient:
         self.phone_number = phone_number
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
+        self._not_registered_logged = False
 
     def receive(self) -> list[dict]:
         try:
@@ -20,6 +21,16 @@ class SignalClient:
                 f"{self.api_url}/v1/receive/{self.phone_number}",
                 timeout=30,
             )
+            if resp.status_code == 400:
+                if not self._not_registered_logged:
+                    logger.warning(
+                        "Signal number %s not registered. "
+                        "Run './deploy.sh link' to link your device.",
+                        self.phone_number,
+                    )
+                    self._not_registered_logged = True
+                return []
+            self._not_registered_logged = False
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.ConnectionError:
