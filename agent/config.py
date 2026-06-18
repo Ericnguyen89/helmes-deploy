@@ -33,3 +33,7 @@ WORKSPACE_DIR = os.getenv("WORKSPACE_DIR", "/workspace")
 TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT", "120"))
 MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "30"))
 THINKING_BUDGET = int(os.getenv("THINKING_BUDGET", "10000"))
+
+# Gmail settings
+GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "").strip()
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
