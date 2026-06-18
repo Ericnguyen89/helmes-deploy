@@ -196,13 +196,6 @@ wait_for_health() {
 # =============================================================================
 link_device() {
     log_step "Linking Signal device..."
-    echo ""
-    echo -e "${YELLOW}To link this agent as a secondary Signal device:${NC}"
-    echo ""
-    echo "  1. Open Signal on your phone"
-    echo "  2. Go to Settings > Linked Devices > Link New Device"
-    echo "  3. The QR code data will appear below"
-    echo ""
 
     if ! curl -sf http://127.0.0.1:8080/v1/health &>/dev/null; then
         log_error "Signal API is not running. Run './deploy.sh' first."
@@ -210,31 +203,53 @@ link_device() {
     fi
 
     local device_name="helmes-agent"
-    echo -e "${CYAN}Generating QR code link...${NC}"
-    echo ""
+    local qr_file="$SCRIPT_DIR/data/qrcode.png"
 
-    local qr_link
-    qr_link=$(curl -sf "http://127.0.0.1:8080/v1/qrcodelink?device_name=${device_name}" \
-        -H "Content-Type: application/json")
-
-    if [[ -n "$qr_link" ]]; then
-        echo "$qr_link" | head -c 2000
-        echo ""
-        echo ""
-        echo -e "${YELLOW}If you see a URI starting with 'sgnl://' above:${NC}"
-        echo "  - You can generate a QR image from it using any QR generator"
-        echo "  - Or open this URL in your browser for the QR code image:"
-        echo "    http://YOUR_SERVER_IP:8080/v1/qrcodelink?device_name=${device_name}"
-        echo ""
-        echo -e "${GREEN}After scanning, restart the agent:${NC}"
-        echo "  ./deploy.sh restart"
-    else
-        echo ""
-        echo "  Try opening in your browser:"
-        echo "  http://YOUR_SERVER_IP:8080/v1/qrcodelink?device_name=${device_name}"
-        echo ""
-        log_warn "Could not get QR code via CLI. Use the browser URL above."
+    log_info "Downloading QR code..."
+    if ! curl -sf "http://127.0.0.1:8080/v1/qrcodelink?device_name=${device_name}" -o "$qr_file"; then
+        log_error "Failed to get QR code from Signal API"
+        exit 1
     fi
+    log_info "QR code saved to: $qr_file"
+
+    # Try to display QR code in terminal
+    if ! command -v qrencode &>/dev/null || ! command -v zbarimg &>/dev/null; then
+        log_info "Installing qrencode & zbar-tools for terminal QR display..."
+        sudo apt-get install -y -qq qrencode zbar-tools 2>/dev/null || true
+    fi
+
+    if command -v zbarimg &>/dev/null && command -v qrencode &>/dev/null; then
+        local uri
+        uri=$(zbarimg --raw -q "$qr_file" 2>/dev/null)
+        if [[ -n "$uri" ]]; then
+            echo ""
+            echo -e "${YELLOW}Scan this QR code with Signal:${NC}"
+            echo -e "${YELLOW}  Phone > Settings > Linked Devices > Link New Device${NC}"
+            echo ""
+            qrencode -t ANSIUTF8 "$uri"
+            echo ""
+            echo -e "${GREEN}After scanning, restart the agent:${NC}"
+            echo "  ./deploy.sh restart"
+            return 0
+        fi
+    fi
+
+    # Fallback if terminal QR failed
+    echo ""
+    echo -e "${YELLOW}Could not display QR in terminal. Use one of these methods:${NC}"
+    echo ""
+    echo "  Method 1 - SSH tunnel:"
+    echo "    Run on your LOCAL machine:"
+    echo "      ssh -L 8080:localhost:8080 user@YOUR_VPS_IP"
+    echo "    Then open in browser:"
+    echo "      http://localhost:8080/v1/qrcodelink?device_name=${device_name}"
+    echo ""
+    echo "  Method 2 - SCP download:"
+    echo "      scp user@YOUR_VPS_IP:${qr_file} ."
+    echo "    Then open qrcode.png on your computer"
+    echo ""
+    echo -e "${GREEN}After scanning, restart the agent:${NC}"
+    echo "  ./deploy.sh restart"
 }
 
 # =============================================================================
