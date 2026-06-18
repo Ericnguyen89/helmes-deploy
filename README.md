@@ -23,8 +23,8 @@ Signal App ──► Signal Server ──► signal-cli-rest-api ──► Helme
 ## Cài đặt nhanh
 
 ```bash
-git clone https://github.com/your-username/hemes-agent.git
-cd hemes-agent
+git clone https://github.com/Ericnguyen89/helmes-deploy.git
+cd helmes-deploy
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -34,6 +34,7 @@ Script `deploy.sh` sẽ tự động:
 2. Cài Docker nếu chưa có
 3. Tạo file `.env` và hỏi thông tin cấu hình
 4. Build & khởi chạy Docker containers
+5. Cài systemd service để tự khởi động khi reboot
 
 ## Cấu hình
 
@@ -83,6 +84,8 @@ Sau khi deploy, chọn một trong hai cách:
 ./deploy.sh uninstall  # Xoá containers & images (giữ dữ liệu)
 ```
 
+Services tự khởi động khi VPS reboot nhờ systemd (`helmes-agent.service`).
+
 ## Lệnh chat trong Signal
 
 | Lệnh | Mô tả | Quyền |
@@ -97,9 +100,10 @@ Sau khi deploy, chọn một trong hai cách:
 ## Cấu trúc dự án
 
 ```
-hemes-agent/
+helmes-deploy/
 ├── deploy.sh                # Script triển khai & quản lý
 ├── docker-compose.yml       # Docker services
+├── helmes-agent.service     # Systemd service (auto-start on boot)
 ├── .env.example             # Template cấu hình
 ├── agent/
 │   ├── Dockerfile
