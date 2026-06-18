@@ -47,6 +47,14 @@ def is_sender_allowed(sender: str) -> bool:
     return sender in allowed
 
 
+def can_use_tools(sender: str) -> bool:
+    if not config.TOOLS_ENABLED:
+        return False
+    if config.TOOLS_ADMIN_ONLY:
+        return sender in config.ADMIN_NUMBERS
+    return True
+
+
 def process_message(
     envelope: dict,
     signal_client: SignalClient,
@@ -93,11 +101,12 @@ def process_message(
     messages = history + [{"role": "user", "content": text}]
 
     system_prompt = store.get_system_prompt(sender) or config.AI_SYSTEM_PROMPT
-    response = ai.chat(messages, system_prompt)
+    use_tools = can_use_tools(sender)
+    response = ai.chat(messages, system_prompt, use_tools=use_tools)
 
     store.add_message(sender, "assistant", response)
     signal_client.send(sender, response)
-    logger.info("Replied to %s (%d chars)", sender_name, len(response))
+    logger.info("Replied to %s (%d chars, tools=%s)", sender_name, len(response), use_tools)
 
 
 def wait_for_signal_api(signal_client: SignalClient, max_retries: int = 30):
@@ -123,12 +132,25 @@ def main():
         sys.exit(1)
 
     signal_client = SignalClient(config.SIGNAL_API_URL, config.SIGNAL_PHONE_NUMBER)
-    ai = AIEngine(config.ANTHROPIC_API_KEY, config.ANTHROPIC_MODEL, config.AI_MAX_TOKENS, config.AI_SYSTEM_PROMPT, config.ANTHROPIC_BASE_URL)
+    ai = AIEngine(
+        api_key=config.ANTHROPIC_API_KEY,
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=config.AI_MAX_TOKENS,
+        default_system_prompt=config.AI_SYSTEM_PROMPT,
+        base_url=config.ANTHROPIC_BASE_URL,
+        tools_enabled=config.TOOLS_ENABLED,
+        workspace_dir=config.WORKSPACE_DIR,
+        thinking_budget=config.THINKING_BUDGET,
+        max_tool_iterations=config.MAX_TOOL_ITERATIONS,
+        tool_timeout=config.TOOL_TIMEOUT,
+    )
     store = ConversationStore(config.DB_PATH)
 
     logger.info("Phone: %s", config.SIGNAL_PHONE_NUMBER)
     logger.info("Model: %s", config.ANTHROPIC_MODEL)
     logger.info("Base URL: %s", config.ANTHROPIC_BASE_URL or "https://api.anthropic.com (default)")
+    logger.info("Tools: %s (admin_only=%s)", config.TOOLS_ENABLED, config.TOOLS_ADMIN_ONLY)
+    logger.info("Workspace: %s", config.WORKSPACE_DIR)
     logger.info("Allowed: %s", config.ALLOWED_NUMBERS)
     logger.info("Admins: %s", config.ADMIN_NUMBERS)
 

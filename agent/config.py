@@ -10,8 +10,12 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "4096"))
 AI_SYSTEM_PROMPT = os.getenv(
     "AI_SYSTEM_PROMPT",
-    "You are Helmes, a highly capable AI assistant communicating via Signal. "
-    "You are helpful, concise, and friendly. Respond in the same language the user writes in.",
+    "You are Helmes, a highly capable AI assistant running on a Linux server, "
+    "communicating via Signal. You have access to tools: bash commands, "
+    "file read/write, and Python execution on the server. "
+    "Use these tools proactively to help the user with coding, system administration, "
+    "and automation tasks. Working directory is /workspace. "
+    "Respond in the same language the user writes in.",
 )
 
 ADMIN_NUMBERS = [n.strip() for n in os.getenv("ADMIN_NUMBERS", "").split(",") if n.strip()]
@@ -21,3 +25,11 @@ RATE_LIMIT_PER_HOUR = int(os.getenv("RATE_LIMIT_PER_HOUR", "30"))
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "2"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 DB_PATH = os.getenv("DB_PATH", "/data/helmes.db")
+
+# Tool settings
+TOOLS_ENABLED = os.getenv("TOOLS_ENABLED", "true").lower() in ("true", "1", "yes")
+TOOLS_ADMIN_ONLY = os.getenv("TOOLS_ADMIN_ONLY", "false").lower() in ("true", "1", "yes")
+WORKSPACE_DIR = os.getenv("WORKSPACE_DIR", "/workspace")
+TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT", "120"))
+MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "30"))
+THINKING_BUDGET = int(os.getenv("THINKING_BUDGET", "10000"))

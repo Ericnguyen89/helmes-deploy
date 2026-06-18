@@ -2,14 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git jq tree wget unzip \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import requests; requests.get('${SIGNAL_API_URL}/v1/health', timeout=5)" || exit 1
+RUN mkdir -p /workspace
 
 CMD ["python", "-u", "main.py"]
