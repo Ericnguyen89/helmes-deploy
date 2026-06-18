@@ -171,6 +171,29 @@ build_and_start() {
 }
 
 # =============================================================================
+# Systemd auto-start on boot
+# =============================================================================
+setup_autostart() {
+    log_step "Setting up auto-start on boot..."
+
+    local service_src="$SCRIPT_DIR/helmes-agent.service"
+    local service_dst="/etc/systemd/system/helmes-agent.service"
+    local deploy_dir
+    deploy_dir="$(cd "$SCRIPT_DIR" && pwd)"
+
+    if [[ ! -f "$service_src" ]]; then
+        log_warn "helmes-agent.service not found, skipping auto-start setup"
+        return
+    fi
+
+    sudo cp "$service_src" "$service_dst"
+    sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=${deploy_dir}|" "$service_dst"
+    sudo systemctl daemon-reload
+    sudo systemctl enable helmes-agent.service
+    log_info "Auto-start enabled (helmes-agent.service)"
+}
+
+# =============================================================================
 # Wait for health
 # =============================================================================
 wait_for_health() {
@@ -374,6 +397,7 @@ full_deploy() {
     setup_dirs
     setup_env
     build_and_start
+    setup_autostart
     wait_for_health
 
     echo ""
