@@ -143,6 +143,8 @@ def main():
         thinking_budget=config.THINKING_BUDGET,
         max_tool_iterations=config.MAX_TOOL_ITERATIONS,
         tool_timeout=config.TOOL_TIMEOUT,
+        context_summarize_threshold=config.CONTEXT_SUMMARIZE_THRESHOLD,
+        context_keep_recent=config.CONTEXT_KEEP_RECENT,
     )
     store = ConversationStore(config.DB_PATH)
 

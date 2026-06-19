@@ -1,6 +1,7 @@
 import logging
 from anthropic import Anthropic
 from tools import TOOL_DEFINITIONS, execute_tool
+from summarizer import summarize_conversation, count_tokens_estimate
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,8 @@ class AIEngine:
         thinking_budget: int = 10000,
         max_tool_iterations: int = 30,
         tool_timeout: int = 120,
+        context_summarize_threshold: int = 20,
+        context_keep_recent: int = 6,
     ):
         kwargs = {"api_key": api_key}
         if base_url:
@@ -59,6 +62,8 @@ class AIEngine:
         self.thinking_budget = thinking_budget
         self.max_tool_iterations = max_tool_iterations
         self.tool_timeout = tool_timeout
+        self.context_summarize_threshold = context_summarize_threshold
+        self.context_keep_recent = context_keep_recent
 
     def _is_thinking_model(self) -> bool:
         return "thinking" in self.model.lower()
@@ -90,6 +95,15 @@ class AIEngine:
         use_tools = use_tools and self.tools_enabled
 
         try:
+            if len(messages) > self.context_summarize_threshold:
+                messages = summarize_conversation(
+                    self.client,
+                    self.model if not self._is_thinking_model() else "claude-sonnet-4-20250514",
+                    messages,
+                    keep_recent=self.context_keep_recent,
+                )
+                logger.info("Context summarized: %d messages remaining", len(messages))
+
             kwargs = self._build_kwargs(messages, system_prompt, use_tools)
             current_messages = list(messages)
 
