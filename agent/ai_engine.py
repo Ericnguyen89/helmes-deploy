@@ -3,6 +3,7 @@ from anthropic import Anthropic
 from tools import TOOL_DEFINITIONS, execute_tool
 from summarizer import summarize_conversation, count_tokens_estimate
 from memory import MemoryStore
+from planner import get_enhanced_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,9 @@ class AIEngine:
         use_tools = use_tools and self.tools_enabled
 
         try:
+            if use_tools and system_prompt:
+                system_prompt = get_enhanced_system_prompt(system_prompt)
+
             if self.memory_store and sender:
                 memory_context = self.memory_store.get_context(sender)
                 if memory_context and system_prompt:
