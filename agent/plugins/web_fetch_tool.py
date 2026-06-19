@@ -35,18 +35,27 @@ class WebFetchTool(ToolPlugin):
             resp.raise_for_status()
 
             content_type = resp.headers.get("content-type", "")
-            if "text/html" not in content_type and "text/" not in content_type:
+            is_xml = "xml" in content_type
+            if not is_xml and "text/html" not in content_type and "text/" not in content_type:
                 return f"Non-text content type: {content_type} ({len(resp.content)} bytes)"
 
-            soup = BeautifulSoup(resp.text, "lxml")
+            parser = "xml" if is_xml else "lxml"
+            soup = BeautifulSoup(resp.text, parser)
 
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
-                tag.decompose()
-
-            title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
-            text = soup.get_text(separator="\n", strip=True)
-            lines = [line for line in text.splitlines() if line.strip()]
-            clean_text = "\n".join(lines)
+            if is_xml:
+                title = "XML Document"
+                lines = []
+                for tag in soup.find_all(True):
+                    if tag.string and tag.string.strip():
+                        lines.append(f"{tag.name}: {tag.string.strip()}")
+                clean_text = "\n".join(lines)
+            else:
+                for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
+                    tag.decompose()
+                title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
+                text = soup.get_text(separator="\n", strip=True)
+                lines = [line for line in text.splitlines() if line.strip()]
+                clean_text = "\n".join(lines)
 
             output = f"Title: {title}\nURL: {url}\n\n{clean_text}"
             return self.truncate(output)
