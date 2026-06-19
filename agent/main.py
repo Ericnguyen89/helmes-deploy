@@ -4,7 +4,7 @@ import logging
 import signal
 
 import config
-from signal_client import SignalClient
+from signal_client import SignalClient, encode_image_base64
 from ai_engine import AIEngine
 from store import ConversationStore
 from commands import is_command, handle_command
@@ -71,7 +71,9 @@ def process_message(
         return
 
     text = data_message.get("message", "")
-    if not text or not text.strip():
+    attachments = data_message.get("attachments", [])
+
+    if (not text or not text.strip()) and not attachments:
         return
 
     sender = envelope.get("sourceNumber") or envelope.get("source", "")
@@ -90,9 +92,9 @@ def process_message(
             return
 
     sender_name = envelope.get("sourceName", sender)
-    logger.info("Message from %s: %s", sender_name, text[:100])
+    logger.info("Message from %s: %s (attachments: %d)", sender_name, (text or "")[:100], len(attachments))
 
-    if is_command(text):
+    if text and is_command(text):
         response, update = handle_command(
             text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store, scheduler
         )
@@ -101,9 +103,30 @@ def process_message(
         signal_client.send(sender, response)
         return
 
+    image_content = _process_attachments(attachments, signal_client)
+
+    if image_content:
+        content_blocks = []
+        for img in image_content:
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img["media_type"],
+                    "data": img["data"],
+                },
+            })
+        if text and text.strip():
+            content_blocks.append({"type": "text", "text": text})
+        else:
+            content_blocks.append({"type": "text", "text": "What is in this image?"})
+        user_message = {"role": "user", "content": content_blocks}
+    else:
+        user_message = {"role": "user", "content": text}
+
     history = store.get_conversation(sender, config.MAX_CONVERSATION_LENGTH)
-    store.add_message(sender, "user", text)
-    messages = history + [{"role": "user", "content": text}]
+    store.add_message(sender, "user", text or "[image]")
+    messages = history + [user_message]
 
     system_prompt = store.get_system_prompt(sender) or config.AI_SYSTEM_PROMPT
     use_tools = can_use_tools(sender)
@@ -112,6 +135,30 @@ def process_message(
     store.add_message(sender, "assistant", response)
     signal_client.send(sender, response)
     logger.info("Replied to %s (%d chars, tools=%s)", sender_name, len(response), use_tools)
+
+
+def _process_attachments(attachments: list[dict], signal_client: SignalClient) -> list[dict]:
+    images = []
+    for att in attachments:
+        content_type = att.get("contentType", "")
+        if not content_type.startswith("image/"):
+            continue
+        att_id = att.get("id")
+        if not att_id:
+            continue
+        file_path = signal_client.download_attachment(att_id)
+        if not file_path:
+            continue
+        result = encode_image_base64(file_path)
+        if result:
+            media_type, data = result
+            images.append({"media_type": media_type, "data": data})
+            try:
+                import os
+                os.remove(file_path)
+            except Exception:
+                pass
+    return images
 
 
 def wait_for_signal_api(signal_client: SignalClient, max_retries: int = 30):

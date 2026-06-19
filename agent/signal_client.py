@@ -1,4 +1,6 @@
+import base64
 import logging
+import os
 import time
 import requests
 
@@ -62,6 +64,43 @@ class SignalClient:
             except Exception:
                 logger.exception("Error sending message to %s", recipient)
 
+    def send_file(self, recipient: str, file_path: str, message: str = ""):
+        try:
+            with open(file_path, "rb") as f:
+                filename = os.path.basename(file_path)
+                resp = requests.post(
+                    f"{self.api_url}/v2/send",
+                    data={
+                        "number": self.phone_number,
+                        "recipients": recipient,
+                        "message": message,
+                    },
+                    files={"attachments": (filename, f)},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                logger.info("File sent to %s: %s", recipient, filename)
+        except Exception:
+            logger.exception("Error sending file to %s", recipient)
+
+    def download_attachment(self, attachment_id: str, save_dir: str = "/tmp") -> str | None:
+        try:
+            resp = self.session.get(
+                f"{self.api_url}/v1/attachments/{attachment_id}",
+                timeout=30,
+            )
+            resp.raise_for_status()
+            content_type = resp.headers.get("Content-Type", "application/octet-stream")
+            ext = _mime_to_ext(content_type)
+            file_path = os.path.join(save_dir, f"attachment_{attachment_id}{ext}")
+            with open(file_path, "wb") as f:
+                f.write(resp.content)
+            logger.info("Downloaded attachment %s to %s (%d bytes)", attachment_id, file_path, len(resp.content))
+            return file_path
+        except Exception:
+            logger.exception("Error downloading attachment %s", attachment_id)
+            return None
+
     def is_registered(self) -> bool:
         try:
             resp = self.session.get(
@@ -95,3 +134,40 @@ class SignalClient:
             remaining = remaining[split_at:].lstrip("\n")
 
         return chunks
+
+
+def _mime_to_ext(content_type: str) -> str:
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "application/pdf": ".pdf",
+        "text/plain": ".txt",
+        "application/json": ".json",
+    }
+    for mime, ext in mapping.items():
+        if mime in content_type:
+            return ext
+    return ".bin"
+
+
+def encode_image_base64(file_path: str) -> tuple[str, str] | None:
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        media_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        media_type = media_types.get(ext)
+        if not media_type:
+            return None
+        with open(file_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("utf-8")
+        return media_type, data
+    except Exception:
+        logger.exception("Error encoding image: %s", file_path)
+        return None
