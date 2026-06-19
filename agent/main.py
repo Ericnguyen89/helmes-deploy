@@ -196,6 +196,7 @@ async def main():
         tool_timeout=config.TOOL_TIMEOUT,
         context_summarize_threshold=config.CONTEXT_SUMMARIZE_THRESHOLD,
         context_keep_recent=config.CONTEXT_KEEP_RECENT,
+        summarize_model=config.SUMMARIZE_MODEL,
     )
     store = ConversationStore(config.DB_PATH)
     memory_store = MemoryStore(config.DB_PATH)

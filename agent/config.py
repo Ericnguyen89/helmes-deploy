@@ -35,6 +35,7 @@ MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "30"))
 THINKING_BUDGET = int(os.getenv("THINKING_BUDGET", "10000"))
 CONTEXT_SUMMARIZE_THRESHOLD = int(os.getenv("CONTEXT_SUMMARIZE_THRESHOLD", "20"))
 CONTEXT_KEEP_RECENT = int(os.getenv("CONTEXT_KEEP_RECENT", "6"))
+SUMMARIZE_MODEL = os.getenv("SUMMARIZE_MODEL", "").strip() or None
 
 # Gmail settings
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "").strip()

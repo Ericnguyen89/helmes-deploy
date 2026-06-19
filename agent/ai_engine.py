@@ -54,6 +54,7 @@ class AIEngine:
         tool_timeout: int = 120,
         context_summarize_threshold: int = 20,
         context_keep_recent: int = 6,
+        summarize_model: str | None = None,
     ):
         kwargs = {"api_key": api_key}
         if base_url:
@@ -69,6 +70,7 @@ class AIEngine:
         self.tool_timeout = tool_timeout
         self.context_summarize_threshold = context_summarize_threshold
         self.context_keep_recent = context_keep_recent
+        self.summarize_model = summarize_model
         self.memory_store: MemoryStore | None = None
 
     def _is_thinking_model(self) -> bool:
@@ -116,11 +118,7 @@ class AIEngine:
                     system_prompt = system_prompt + "\n\n" + memory_context
 
             if len(messages) > self.context_summarize_threshold:
-                summary_model = (
-                    self.model
-                    if not self._is_thinking_model()
-                    else "claude-sonnet-4-20250514"
-                )
+                summary_model = self.summarize_model or self.model
                 messages = await summarize_conversation(
                     self.client,
                     summary_model,
