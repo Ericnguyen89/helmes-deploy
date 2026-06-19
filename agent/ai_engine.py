@@ -1,7 +1,10 @@
+import asyncio
 import logging
-from anthropic import Anthropic
-from tools import TOOL_DEFINITIONS, execute_tool
-from summarizer import summarize_conversation, count_tokens_estimate
+
+from anthropic import AsyncAnthropic
+
+from tools import TOOL_DEFINITIONS, execute_tool_async
+from summarizer import summarize_conversation
 from memory import MemoryStore
 from planner import get_enhanced_system_prompt
 
@@ -55,7 +58,7 @@ class AIEngine:
         kwargs = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
-        self.client = Anthropic(**kwargs)
+        self.client = AsyncAnthropic(**kwargs)
         self.model = model
         self.max_tokens = max_tokens
         self.default_system_prompt = default_system_prompt
@@ -94,7 +97,13 @@ class AIEngine:
 
         return kwargs
 
-    def chat(self, messages: list[dict], system_prompt: str | None = None, use_tools: bool = False, sender: str = "") -> str:
+    async def chat(
+        self,
+        messages: list[dict],
+        system_prompt: str | None = None,
+        use_tools: bool = False,
+        sender: str = "",
+    ) -> str:
         use_tools = use_tools and self.tools_enabled
 
         try:
@@ -107,9 +116,14 @@ class AIEngine:
                     system_prompt = system_prompt + "\n\n" + memory_context
 
             if len(messages) > self.context_summarize_threshold:
-                messages = summarize_conversation(
+                summary_model = (
+                    self.model
+                    if not self._is_thinking_model()
+                    else "claude-sonnet-4-20250514"
+                )
+                messages = await summarize_conversation(
                     self.client,
-                    self.model if not self._is_thinking_model() else "claude-sonnet-4-20250514",
+                    summary_model,
                     messages,
                     keep_recent=self.context_keep_recent,
                 )
@@ -120,7 +134,7 @@ class AIEngine:
 
             for iteration in range(self.max_tool_iterations):
                 kwargs["messages"] = current_messages
-                response = self.client.messages.create(**kwargs)
+                response = await self.client.messages.create(**kwargs)
 
                 if response.stop_reason == "tool_use":
                     current_messages.append({
@@ -129,20 +143,31 @@ class AIEngine:
                     })
 
                     tool_results = []
+                    tool_tasks = []
+                    tool_ids = []
+
                     for block in response.content:
                         if block.type == "tool_use":
-                            result = execute_tool(
-                                block.name,
-                                block.input,
-                                self.workspace_dir,
-                                self.tool_timeout,
-                                sender=sender,
+                            tool_ids.append(block.id)
+                            tool_tasks.append(
+                                execute_tool_async(
+                                    block.name,
+                                    block.input,
+                                    self.workspace_dir,
+                                    self.tool_timeout,
+                                    sender=sender,
+                                )
                             )
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": result,
-                            })
+
+                    results = await asyncio.gather(*tool_tasks, return_exceptions=True)
+
+                    for tool_id, result in zip(tool_ids, results):
+                        content = str(result) if isinstance(result, Exception) else result
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": content,
+                        })
 
                     current_messages.append({
                         "role": "user",
@@ -150,9 +175,10 @@ class AIEngine:
                     })
 
                     logger.info(
-                        "Tool iteration %d/%d completed",
+                        "Tool iteration %d/%d completed (%d tools)",
                         iteration + 1,
                         self.max_tool_iterations,
+                        len(tool_results),
                     )
                     continue
 

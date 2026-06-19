@@ -1,4 +1,4 @@
-import requests
+import httpx
 from bs4 import BeautifulSoup
 
 from .base import ToolPlugin, ToolContext
@@ -31,10 +31,10 @@ class WebFetchTool(ToolPlugin):
                     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
             }
-            resp = requests.get(url, timeout=15, headers=headers)
+            resp = httpx.get(url, timeout=15, headers=headers, follow_redirects=True)
             resp.raise_for_status()
 
-            content_type = resp.headers.get("Content-Type", "")
+            content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type and "text/" not in content_type:
                 return f"Non-text content type: {content_type} ({len(resp.content)} bytes)"
 
@@ -51,7 +51,7 @@ class WebFetchTool(ToolPlugin):
             output = f"Title: {title}\nURL: {url}\n\n{clean_text}"
             return self.truncate(output)
 
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             return f"Error: request timed out for {url}"
-        except requests.exceptions.RequestException as e:
+        except httpx.HTTPError as e:
             return f"Error fetching {url}: {e}"

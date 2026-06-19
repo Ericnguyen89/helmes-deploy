@@ -1,6 +1,6 @@
 import logging
 
-import requests
+import httpx
 
 import config
 from .base import ToolPlugin, ToolContext
@@ -41,7 +41,7 @@ class WebSearchTool(ToolPlugin):
 
 def _google_search(query: str, max_results: int) -> str:
     try:
-        resp = requests.get(
+        resp = httpx.get(
             "https://www.googleapis.com/customsearch/v1",
             params={
                 "key": config.GOOGLE_API_KEY,
@@ -66,8 +66,8 @@ def _google_search(query: str, max_results: int) -> str:
             output_lines.append("")
 
         return "\n".join(output_lines)
-    except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 429:
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
             logger.warning("Google API quota exceeded, falling back to DuckDuckGo")
             return _duckduckgo_search(query, max_results)
         return f"Google search error: {e}"

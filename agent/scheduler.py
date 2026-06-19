@@ -1,7 +1,6 @@
+import asyncio
 import sqlite3
 import logging
-import threading
-import time
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -47,8 +46,7 @@ class Scheduler:
     def __init__(self, db_path: str, callback=None):
         self.db_path = db_path
         self.callback = callback
-        self._running = False
-        self._thread = None
+        self._task: asyncio.Task | None = None
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -144,21 +142,24 @@ class Scheduler:
             conn.close()
 
     def start(self):
-        if self._running:
+        if self._task is not None:
             return
-        self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
+        self._task = asyncio.create_task(self._run_loop())
         logger.info("Scheduler started")
 
-    def stop(self):
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=5)
+    async def stop(self):
+        if self._task is None:
+            return
+        self._task.cancel()
+        try:
+            await self._task
+        except asyncio.CancelledError:
+            pass
+        self._task = None
         logger.info("Scheduler stopped")
 
-    def _run_loop(self):
-        while self._running:
+    async def _run_loop(self):
+        while True:
             try:
                 due_tasks = self.get_due_tasks()
                 for task in due_tasks:
@@ -168,12 +169,15 @@ class Scheduler:
                         task["sender"],
                     )
                     if self.callback:
-                        try:
-                            self.callback(task["sender"], task["task_prompt"])
-                        except Exception:
-                            logger.exception(
-                                "Error executing scheduled task: %s", task["name"]
-                            )
+                        asyncio.create_task(
+                            self._safe_callback(task["sender"], task["task_prompt"], task["name"])
+                        )
             except Exception:
                 logger.exception("Scheduler loop error")
-            time.sleep(30)
+            await asyncio.sleep(30)
+
+    async def _safe_callback(self, sender: str, prompt: str, task_name: str):
+        try:
+            await self.callback(sender, prompt)
+        except Exception:
+            logger.exception("Error executing scheduled task: %s", task_name)

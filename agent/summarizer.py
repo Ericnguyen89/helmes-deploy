@@ -1,7 +1,5 @@
 import logging
 
-from anthropic import Anthropic
-
 logger = logging.getLogger(__name__)
 
 SUMMARIZE_PROMPT = (
@@ -12,23 +10,8 @@ SUMMARIZE_PROMPT = (
 )
 
 
-def count_tokens_estimate(messages: list[dict]) -> int:
-    total = 0
-    for msg in messages:
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total += len(content) // 4
-        elif isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict):
-                    for v in block.values():
-                        if isinstance(v, str):
-                            total += len(v) // 4
-    return total
-
-
-def summarize_conversation(
-    client: Anthropic,
+async def summarize_conversation(
+    client,
     model: str,
     messages: list[dict],
     keep_recent: int = 6,
@@ -61,7 +44,7 @@ def summarize_conversation(
         return messages
 
     try:
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model,
             max_tokens=1024,
             system=SUMMARIZE_PROMPT,
