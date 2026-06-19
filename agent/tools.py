@@ -7,7 +7,12 @@ so they continue to work without changes beyond import paths.
 from plugins import get_definitions, execute as _execute, list_plugins
 from plugins.base import ToolContext
 
-TOOL_DEFINITIONS = get_definitions()
+
+def get_tool_definitions():
+    return get_definitions()
+
+
+TOOL_DEFINITIONS = get_tool_definitions()
 
 
 def execute_tool(name: str, tool_input: dict, workspace: str, timeout: int = 60, sender: str = "") -> str:
