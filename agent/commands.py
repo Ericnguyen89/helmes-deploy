@@ -1,5 +1,6 @@
 import logging
 from store import ConversationStore
+from memory import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -11,9 +12,10 @@ HELP_TEXT = """*Helmes Agent - Commands*
 /system - Show current system prompt
 /info - Show conversation stats
 /model <name> - Switch AI model (admin)
+/memory - List all saved memories
 /ping - Check if agent is alive"""
 
-COMMANDS = {"/help", "/reset", "/system", "/info", "/model", "/ping"}
+COMMANDS = {"/help", "/reset", "/system", "/info", "/model", "/memory", "/ping"}
 
 
 def is_command(text: str) -> bool:
@@ -26,6 +28,7 @@ def handle_command(
     store: ConversationStore,
     admin_numbers: list[str],
     current_model: str,
+    memory_store: MemoryStore | None = None,
 ) -> tuple[str, dict | None]:
     parts = text.strip().split(maxsplit=1)
     cmd = parts[0].lower()
@@ -72,5 +75,20 @@ def handle_command(
             return "Only admins can change the model.", None
         config_update = {"model": arg}
         return f"Model switched to: {arg}", config_update
+
+    if cmd == "/memory":
+        if not memory_store:
+            return "Memory system not available.", None
+        memories = memory_store.list_all(sender)
+        if not memories:
+            return "No memories saved yet. The AI will save important info automatically.", None
+        lines = [f"*Saved Memories ({len(memories)})*\n"]
+        current_cat = None
+        for m in memories:
+            if m["category"] != current_cat:
+                current_cat = m["category"]
+                lines.append(f"\n📂 {current_cat}")
+            lines.append(f"  • {m['key']}: {m['content']}")
+        return "\n".join(lines), None
 
     return f"Unknown command: {cmd}\nType /help for available commands.", None

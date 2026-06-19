@@ -5,11 +5,12 @@ MAX_OUTPUT_LENGTH = 15000
 
 
 class ToolContext:
-    __slots__ = ("workspace", "timeout")
+    __slots__ = ("workspace", "timeout", "sender")
 
-    def __init__(self, workspace: str = "/workspace", timeout: int = 120):
+    def __init__(self, workspace: str = "/workspace", timeout: int = 120, sender: str = ""):
         self.workspace = workspace
         self.timeout = timeout
+        self.sender = sender
 
 
 class ToolPlugin:

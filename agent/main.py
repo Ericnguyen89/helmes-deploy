@@ -8,6 +8,8 @@ from signal_client import SignalClient
 from ai_engine import AIEngine
 from store import ConversationStore
 from commands import is_command, handle_command
+from memory import MemoryStore
+from plugins.memory_tools import set_memory_store
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -60,6 +62,7 @@ def process_message(
     signal_client: SignalClient,
     ai: AIEngine,
     store: ConversationStore,
+    memory_store: "MemoryStore | None" = None,
 ):
     data_message = envelope.get("dataMessage")
     if not data_message:
@@ -89,7 +92,7 @@ def process_message(
 
     if is_command(text):
         response, update = handle_command(
-            text, sender, store, config.ADMIN_NUMBERS, ai.model
+            text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store
         )
         if update and "model" in update:
             ai.model = update["model"]
@@ -102,7 +105,7 @@ def process_message(
 
     system_prompt = store.get_system_prompt(sender) or config.AI_SYSTEM_PROMPT
     use_tools = can_use_tools(sender)
-    response = ai.chat(messages, system_prompt, use_tools=use_tools)
+    response = ai.chat(messages, system_prompt, use_tools=use_tools, sender=sender)
 
     store.add_message(sender, "assistant", response)
     signal_client.send(sender, response)
@@ -147,6 +150,9 @@ def main():
         context_keep_recent=config.CONTEXT_KEEP_RECENT,
     )
     store = ConversationStore(config.DB_PATH)
+    memory_store = MemoryStore(config.DB_PATH)
+    ai.memory_store = memory_store
+    set_memory_store(memory_store)
 
     logger.info("Phone: %s", config.SIGNAL_PHONE_NUMBER)
     logger.info("Model: %s", config.ANTHROPIC_MODEL)
@@ -170,7 +176,7 @@ def main():
             for msg in messages:
                 envelope = msg.get("envelope", {})
                 try:
-                    process_message(envelope, signal_client, ai, store)
+                    process_message(envelope, signal_client, ai, store, memory_store)
                 except Exception:
                     logger.exception("Error processing message")
 

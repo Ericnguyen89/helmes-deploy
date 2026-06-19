@@ -2,6 +2,7 @@ import logging
 from anthropic import Anthropic
 from tools import TOOL_DEFINITIONS, execute_tool
 from summarizer import summarize_conversation, count_tokens_estimate
+from memory import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class AIEngine:
         self.tool_timeout = tool_timeout
         self.context_summarize_threshold = context_summarize_threshold
         self.context_keep_recent = context_keep_recent
+        self.memory_store: MemoryStore | None = None
 
     def _is_thinking_model(self) -> bool:
         return "thinking" in self.model.lower()
@@ -91,10 +93,15 @@ class AIEngine:
 
         return kwargs
 
-    def chat(self, messages: list[dict], system_prompt: str | None = None, use_tools: bool = False) -> str:
+    def chat(self, messages: list[dict], system_prompt: str | None = None, use_tools: bool = False, sender: str = "") -> str:
         use_tools = use_tools and self.tools_enabled
 
         try:
+            if self.memory_store and sender:
+                memory_context = self.memory_store.get_context(sender)
+                if memory_context and system_prompt:
+                    system_prompt = system_prompt + "\n\n" + memory_context
+
             if len(messages) > self.context_summarize_threshold:
                 messages = summarize_conversation(
                     self.client,
@@ -125,6 +132,7 @@ class AIEngine:
                                 block.input,
                                 self.workspace_dir,
                                 self.tool_timeout,
+                                sender=sender,
                             )
                             tool_results.append({
                                 "type": "tool_result",
