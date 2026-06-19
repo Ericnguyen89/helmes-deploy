@@ -185,6 +185,16 @@ class AIEngine:
                     return text
                 return "[Helmes] No response generated."
 
+            logger.warning("Reached max tool iterations (%d)", self.max_tool_iterations)
+            kwargs["messages"] = current_messages
+            kwargs.pop("tools", None)
+            try:
+                final = await self.client.messages.create(**kwargs)
+                text = _extract_text(final.content)
+                if text:
+                    return text + "\n\n⚠️ [Helmes] Reached maximum tool iterations. Result may be incomplete."
+            except Exception:
+                logger.exception("Final summary call failed")
             return "[Helmes] Reached maximum tool iterations. Task may be incomplete."
 
         except Exception:
