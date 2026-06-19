@@ -1,6 +1,7 @@
 import logging
 from store import ConversationStore
 from memory import MemoryStore
+from scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +14,10 @@ HELP_TEXT = """*Helmes Agent - Commands*
 /info - Show conversation stats
 /model <name> - Switch AI model (admin)
 /memory - List all saved memories
+/schedule - List scheduled tasks
 /ping - Check if agent is alive"""
 
-COMMANDS = {"/help", "/reset", "/system", "/info", "/model", "/memory", "/ping"}
+COMMANDS = {"/help", "/reset", "/system", "/info", "/model", "/memory", "/schedule", "/ping"}
 
 
 def is_command(text: str) -> bool:
@@ -29,6 +31,7 @@ def handle_command(
     admin_numbers: list[str],
     current_model: str,
     memory_store: MemoryStore | None = None,
+    scheduler: Scheduler | None = None,
 ) -> tuple[str, dict | None]:
     parts = text.strip().split(maxsplit=1)
     cmd = parts[0].lower()
@@ -89,6 +92,22 @@ def handle_command(
                 current_cat = m["category"]
                 lines.append(f"\n📂 {current_cat}")
             lines.append(f"  • {m['key']}: {m['content']}")
+        return "\n".join(lines), None
+
+    if cmd == "/schedule":
+        if not scheduler:
+            return "Scheduler not available.", None
+        tasks = scheduler.list_tasks(sender)
+        if not tasks:
+            return "No scheduled tasks. Ask the AI to schedule tasks for you.", None
+        lines = [f"*Scheduled Tasks ({len(tasks)})*\n"]
+        for t in tasks:
+            status = "✅" if t["enabled"] else "⏸️"
+            lines.append(f"{status} {t['name']}")
+            lines.append(f"   Cron: {t['cron_expr']}")
+            lines.append(f"   Task: {t['task_prompt'][:80]}")
+            if t["last_run"]:
+                lines.append(f"   Last: {t['last_run']}")
         return "\n".join(lines), None
 
     return f"Unknown command: {cmd}\nType /help for available commands.", None

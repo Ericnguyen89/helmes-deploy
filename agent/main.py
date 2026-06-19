@@ -10,6 +10,8 @@ from store import ConversationStore
 from commands import is_command, handle_command
 from memory import MemoryStore
 from plugins.memory_tools import set_memory_store
+from scheduler import Scheduler
+from plugins.scheduler_tools import set_scheduler
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -92,7 +94,7 @@ def process_message(
 
     if is_command(text):
         response, update = handle_command(
-            text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store
+            text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store, scheduler
         )
         if update and "model" in update:
             ai.model = update["model"]
@@ -154,6 +156,16 @@ def main():
     ai.memory_store = memory_store
     set_memory_store(memory_store)
 
+    def scheduled_task_callback(sender, prompt):
+        system_prompt = store.get_system_prompt(sender) or config.AI_SYSTEM_PROMPT
+        messages = [{"role": "user", "content": prompt}]
+        use_tools = can_use_tools(sender)
+        response = ai.chat(messages, system_prompt, use_tools=use_tools, sender=sender)
+        signal_client.send(sender, f"⏰ [Scheduled Task]\n{response}")
+
+    scheduler = Scheduler(config.DB_PATH, callback=scheduled_task_callback)
+    set_scheduler(scheduler)
+
     logger.info("Phone: %s", config.SIGNAL_PHONE_NUMBER)
     logger.info("Model: %s", config.ANTHROPIC_MODEL)
     logger.info("Base URL: %s", config.ANTHROPIC_BASE_URL or "https://api.anthropic.com (default)")
@@ -166,6 +178,7 @@ def main():
         logger.warning("Starting anyway - Signal API may not be registered yet")
 
     logger.info("Polling for messages every %ds...", config.POLL_INTERVAL)
+    scheduler.start()
 
     consecutive_errors = 0
     while running:
@@ -190,6 +203,7 @@ def main():
 
         time.sleep(config.POLL_INTERVAL)
 
+    scheduler.stop()
     logger.info("Helmes Agent stopped.")
 
 
