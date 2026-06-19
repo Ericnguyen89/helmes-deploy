@@ -39,3 +39,8 @@ CONTEXT_KEEP_RECENT = int(os.getenv("CONTEXT_KEEP_RECENT", "6"))
 # Gmail settings
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "").strip()
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+
+# Search engine: "duckduckgo" (default, no key needed) or "google"
+SEARCH_ENGINE = os.getenv("SEARCH_ENGINE", "duckduckgo").lower()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "").strip()
