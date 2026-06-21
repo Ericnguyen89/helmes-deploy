@@ -33,10 +33,10 @@ class TokenUsage:
         return self.input_tokens + self.output_tokens
 
     def add(self, other: "TokenUsage"):
-        self.input_tokens += other.input_tokens
-        self.output_tokens += other.output_tokens
-        self.cache_read_tokens += other.cache_read_tokens
-        self.cache_creation_tokens += other.cache_creation_tokens
+        self.input_tokens += other.input_tokens or 0
+        self.output_tokens += other.output_tokens or 0
+        self.cache_read_tokens += other.cache_read_tokens or 0
+        self.cache_creation_tokens += other.cache_creation_tokens or 0
 
     @classmethod
     def from_api_response(cls, response) -> "TokenUsage":
@@ -44,10 +44,10 @@ class TokenUsage:
         if usage is None:
             return cls()
         return cls(
-            input_tokens=getattr(usage, "input_tokens", 0),
-            output_tokens=getattr(usage, "output_tokens", 0),
-            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0),
-            cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0),
+            input_tokens=getattr(usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_creation_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
         )
 
     def to_dict(self) -> dict[str, int]:

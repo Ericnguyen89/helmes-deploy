@@ -76,6 +76,9 @@ class SubAgentExecutor:
                 "messages": [{"role": "user", "content": message}],
                 "system": DECOMPOSE_PROMPT,
             }
+            if "thinking" in self.model.lower():
+                kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2048}
+                kwargs["max_tokens"] = 4096
             response = await self.client.messages.create(**kwargs)
             text = ""
             for block in response.content:
@@ -221,6 +224,8 @@ class SubAgentExecutor:
         Sequential sub-tasks (numbered) run in order with context passing.
         Independent sub-tasks run concurrently (up to MAX_CONCURRENT_SUBAGENTS).
         """
+        from ai_engine import _extract_text
+
         parent_result = TaskResult(task_id=str(uuid.uuid4())[:8])
         parent_result.start()
 
@@ -280,12 +285,17 @@ class SubAgentExecutor:
         combined = "\n\n---\n\n".join(synthesis_parts)
 
         try:
-            synth_response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system="Synthesize the following sub-task results into a coherent, well-structured response for the user. Respond in the same language as the content.",
-                messages=[{"role": "user", "content": combined}],
-            )
+            synth_kwargs = {
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "system": "Synthesize the following sub-task results into a coherent, well-structured response for the user. Respond in the same language as the content.",
+                "messages": [{"role": "user", "content": combined}],
+            }
+            if "thinking" in self.model.lower():
+                synth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
+                if self.max_tokens < self.thinking_budget + 4096:
+                    synth_kwargs["max_tokens"] = self.thinking_budget + 4096
+            synth_response = await self.client.messages.create(**synth_kwargs)
             parent_result.token_usage.add(TokenUsage.from_api_response(synth_response))
             text = _extract_text(synth_response.content)
             final_text = text or combined
