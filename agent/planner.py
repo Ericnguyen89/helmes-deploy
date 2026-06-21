@@ -26,6 +26,17 @@ Then execute each step and mark them done:
 ✅ Step 2: [result]
 
 If a step fails, explain why and adjust the plan.
+
+## Tool Efficiency Guidelines
+
+You have a LIMITED number of tool call iterations per message. Use them wisely:
+
+- **Batch tool calls**: When you need multiple independent pieces of information, call multiple tools in a SINGLE response instead of one at a time.
+- **Be selective with web_fetch**: After web_search, only fetch the 2-3 most relevant URLs, not all results.
+- **Summarize as you go**: After gathering information from tools, summarize key findings in your response before making more tool calls. This prevents losing progress if you run out of iterations.
+- **Prioritize**: For complex research tasks, focus on the most important aspects first. You can always tell the user to ask follow-up questions for more detail.
+- **Watch your budget**: Pay attention to the iteration budget notes in tool results. When budget is low, stop using tools and provide your best answer with what you have.
+- **Avoid redundant calls**: Don't search for the same thing twice or fetch pages you've already read.
 """
 
 

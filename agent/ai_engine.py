@@ -99,6 +99,28 @@ class AIEngine:
 
         return kwargs
 
+    def _budget_note(self, iteration: int) -> str:
+        remaining = self.max_tool_iterations - iteration - 1
+        if remaining <= max(2, int(self.max_tool_iterations * 0.1)):
+            return (
+                f"\n\n[⚠️ CRITICAL: Only {remaining} tool call(s) remaining! "
+                "You MUST provide your final answer NOW. Summarize everything "
+                "you have found so far and respond to the user immediately. "
+                "Do NOT make more tool calls.]"
+            )
+        if remaining <= int(self.max_tool_iterations * 0.3):
+            return (
+                f"\n\n[⚠️ Tool budget running low: {remaining}/{self.max_tool_iterations} remaining. "
+                "Start wrapping up. Consolidate your findings and prepare your final response. "
+                "Only use tools if absolutely essential.]"
+            )
+        if remaining <= int(self.max_tool_iterations * 0.5):
+            return (
+                f"\n\n[Tool budget: {remaining}/{self.max_tool_iterations} iterations remaining. "
+                "Be efficient with remaining tool calls.]"
+            )
+        return ""
+
     async def chat(
         self,
         messages: list[dict],
@@ -131,6 +153,11 @@ class AIEngine:
             current_messages = list(messages)
 
             for iteration in range(self.max_tool_iterations):
+                remaining = self.max_tool_iterations - iteration - 1
+                force_respond = remaining <= 1
+                if force_respond:
+                    kwargs.pop("tools", None)
+
                 kwargs["messages"] = current_messages
                 response = await self.client.messages.create(**kwargs)
 
@@ -159,8 +186,11 @@ class AIEngine:
 
                     results = await asyncio.gather(*tool_tasks, return_exceptions=True)
 
-                    for tool_id, result in zip(tool_ids, results):
+                    budget_note = self._budget_note(iteration)
+                    for i, (tool_id, result) in enumerate(zip(tool_ids, results)):
                         content = str(result) if isinstance(result, Exception) else result
+                        if budget_note and i == len(tool_ids) - 1:
+                            content += budget_note
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": tool_id,
@@ -173,10 +203,11 @@ class AIEngine:
                     })
 
                     logger.info(
-                        "Tool iteration %d/%d completed (%d tools)",
+                        "Tool iteration %d/%d completed (%d tools, %d remaining)",
                         iteration + 1,
                         self.max_tool_iterations,
                         len(tool_results),
+                        remaining,
                     )
                     continue
 
