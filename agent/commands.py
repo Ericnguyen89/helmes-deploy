@@ -12,12 +12,13 @@ HELP_TEXT = """*Helmes Agent - Commands*
 /system <prompt> - Set custom system prompt (admin)
 /system - Show current system prompt
 /info - Show conversation stats
+/status - Show last task execution stats
 /model <name> - Switch AI model (admin)
 /memory - List all saved memories
 /schedule - List scheduled tasks
 /ping - Check if agent is alive"""
 
-COMMANDS = {"/help", "/reset", "/system", "/info", "/model", "/memory", "/schedule", "/ping"}
+COMMANDS = {"/help", "/reset", "/system", "/info", "/status", "/model", "/memory", "/schedule", "/ping"}
 
 
 def is_command(text: str) -> bool:
@@ -32,6 +33,7 @@ def handle_command(
     current_model: str,
     memory_store: MemoryStore | None = None,
     scheduler: Scheduler | None = None,
+    ai_engine=None,
 ) -> tuple[str, dict | None]:
     parts = text.strip().split(maxsplit=1)
     cmd = parts[0].lower()
@@ -58,6 +60,27 @@ def handle_command(
             f"Custom system prompt: {'Yes' if prompt else 'No (using default)'}",
             f"Admin: {'Yes' if is_admin else 'No'}",
         ]
+        if ai_engine and hasattr(ai_engine, 'skill_registry'):
+            lines.append(f"Skills loaded: {', '.join(ai_engine.skill_registry.list_skills())}")
+        return "\n".join(lines), None
+
+    if cmd == "/status":
+        if not ai_engine or not hasattr(ai_engine, '_last_task_result') or not ai_engine._last_task_result:
+            return "No task has been executed yet.", None
+        tr = ai_engine._last_task_result
+        lines = [
+            "*Last Task Stats*",
+            f"Status: {tr.status.value}",
+            f"Duration: {tr.duration_seconds}s",
+            f"Tokens: {tr.token_usage.input_tokens} in / {tr.token_usage.output_tokens} out",
+            f"Tool iterations: {tr.tool_iterations}",
+        ]
+        if tr.skill_used:
+            lines.append(f"Skill: {tr.skill_used}")
+        if tr.sub_tasks:
+            lines.append(f"\nSub-tasks: {len(tr.sub_tasks)}")
+            for i, st in enumerate(tr.sub_tasks, 1):
+                lines.append(f"  {i}. [{st.status.value}] {st.skill_used or 'general'} — {st.tool_iterations} iters, {st.token_usage.total_tokens} tokens")
         return "\n".join(lines), None
 
     if cmd == "/system":

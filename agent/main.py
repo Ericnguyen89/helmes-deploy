@@ -96,7 +96,7 @@ async def process_message(
     async with _get_user_lock(sender):
         if text and is_command(text):
             response, update = handle_command(
-                text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store, scheduler
+                text, sender, store, config.ADMIN_NUMBERS, ai.model, memory_store, scheduler, ai_engine=ai
             )
             if update and "model" in update:
                 ai.model = update["model"]

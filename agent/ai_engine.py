@@ -7,6 +7,9 @@ from tools import TOOL_DEFINITIONS, execute_tool_async
 from summarizer import summarize_conversation
 from memory import MemoryStore
 from planner import get_enhanced_system_prompt
+from skills import SkillRegistry
+from task_result import TaskResult, TokenUsage
+from sub_agent import SubAgentExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,19 @@ class AIEngine:
         self.context_keep_recent = context_keep_recent
         self.summarize_model = summarize_model
         self.memory_store: MemoryStore | None = None
+        self.skill_registry = SkillRegistry()
+        self.sub_agent = SubAgentExecutor(
+            client=self.client,
+            model=self.model,
+            max_tokens=self.max_tokens,
+            tools_enabled=self.tools_enabled,
+            tool_definitions=TOOL_DEFINITIONS,
+            workspace_dir=self.workspace_dir,
+            tool_timeout=self.tool_timeout,
+            thinking_budget=self.thinking_budget,
+            execute_tool_fn=execute_tool_async,
+        )
+        self._last_task_result: TaskResult | None = None
 
     def _is_thinking_model(self) -> bool:
         return "thinking" in self.model.lower()
@@ -139,6 +155,35 @@ class AIEngine:
                 if memory_context and system_prompt:
                     system_prompt = system_prompt + "\n\n" + memory_context
 
+            # Skill-based prompt enhancement
+            user_message = ""
+            skill = None
+            if messages:
+                last = messages[-1]
+                if isinstance(last.get("content"), str):
+                    user_message = last["content"]
+
+            if use_tools and user_message:
+                skill = self.skill_registry.classify(user_message)
+                if skill and system_prompt:
+                    system_prompt += f"\n\n{skill.content}"
+                    logger.info("Skill activated: %s", skill.name)
+
+                # Try task decomposition for complex tasks
+                if len(user_message) > 50:
+                    sub_tasks = await self.sub_agent.try_decompose(user_message)
+                    if sub_tasks:
+                        logger.info("Task decomposed into %d sub-tasks", len(sub_tasks))
+                        text, task_result = await self.sub_agent.execute_decomposed(
+                            sub_tasks,
+                            self.skill_registry,
+                            sender=sender,
+                            total_budget=self.max_tool_iterations,
+                        )
+                        self._last_task_result = task_result
+                        logger.info("Decomposed task completed: %s", task_result.to_summary())
+                        return text
+
             if len(messages) > self.context_summarize_threshold:
                 summary_model = self.summarize_model or self.model
                 messages = await summarize_conversation(
@@ -151,6 +196,10 @@ class AIEngine:
 
             kwargs = self._build_kwargs(messages, system_prompt, use_tools)
             current_messages = list(messages)
+            task_result = TaskResult(task_id="main")
+            task_result.start()
+            if skill:
+                task_result.skill_used = skill.name
 
             for iteration in range(self.max_tool_iterations):
                 remaining = self.max_tool_iterations - iteration - 1
@@ -160,6 +209,8 @@ class AIEngine:
 
                 kwargs["messages"] = current_messages
                 response = await self.client.messages.create(**kwargs)
+                task_result.token_usage.add(TokenUsage.from_api_response(response))
+                task_result.tool_iterations = iteration + 1
 
                 if response.stop_reason == "tool_use":
                     current_messages.append({
@@ -213,6 +264,9 @@ class AIEngine:
 
                 text = _extract_text(response.content)
                 if text:
+                    task_result.complete(text)
+                    self._last_task_result = task_result
+                    logger.info("Task completed: %s", task_result.to_summary())
                     return text
                 return "[Helmes] No response generated."
 
@@ -221,11 +275,17 @@ class AIEngine:
             kwargs.pop("tools", None)
             try:
                 final = await self.client.messages.create(**kwargs)
+                task_result.token_usage.add(TokenUsage.from_api_response(final))
                 text = _extract_text(final.content)
                 if text:
+                    task_result.complete(text)
+                    self._last_task_result = task_result
+                    logger.info("Task completed (max iter): %s", task_result.to_summary())
                     return text + "\n\n⚠️ [Helmes] Reached maximum tool iterations. Result may be incomplete."
             except Exception:
                 logger.exception("Final summary call failed")
+            task_result.fail("Max iterations exhausted")
+            self._last_task_result = task_result
             return "[Helmes] Reached maximum tool iterations. Task may be incomplete."
 
         except Exception:
