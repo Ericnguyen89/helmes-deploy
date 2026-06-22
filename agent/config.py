@@ -41,6 +41,25 @@ ACTIVE_PROVIDER = _resolve_active_provider()
 # The model used at startup = the active provider's configured model.
 ACTIVE_MODEL = PROVIDER_CONFIGS[ACTIVE_PROVIDER]["model"]
 
+# --- Tiered models (complexity-based routing) ---
+# light = fast/cheap (Q&A, orchestration); heavy = deep reasoning.
+# HEAVY defaults to each provider's base *_MODEL when its *_HEAVY is unset.
+ANTHROPIC_MODEL_LIGHT = os.getenv("ANTHROPIC_MODEL_LIGHT", "claude-sonnet-4-6").strip()
+ANTHROPIC_MODEL_HEAVY = os.getenv("ANTHROPIC_MODEL_HEAVY", "").strip() or ANTHROPIC_MODEL
+OPENAI_MODEL_LIGHT = os.getenv("OPENAI_MODEL_LIGHT", "gpt-4o-mini").strip()
+OPENAI_MODEL_HEAVY = os.getenv("OPENAI_MODEL_HEAVY", "").strip() or OPENAI_MODEL
+GEMINI_MODEL_LIGHT = os.getenv("GEMINI_MODEL_LIGHT", "gemini-2.0-flash").strip()
+GEMINI_MODEL_HEAVY = os.getenv("GEMINI_MODEL_HEAVY", "").strip() or GEMINI_MODEL
+
+MODEL_TIERS = {
+    "anthropic": {"light": ANTHROPIC_MODEL_LIGHT, "heavy": ANTHROPIC_MODEL_HEAVY},
+    "openai": {"light": OPENAI_MODEL_LIGHT, "heavy": OPENAI_MODEL_HEAVY},
+    "gemini": {"light": GEMINI_MODEL_LIGHT, "heavy": GEMINI_MODEL_HEAVY},
+}
+
+# Enable complexity-based routing (light <-> heavy). If false, always use ACTIVE_MODEL.
+MODEL_ROUTING = os.getenv("MODEL_ROUTING", "true").lower() in ("true", "1", "yes")
+
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "4096"))
 AI_SYSTEM_PROMPT = os.getenv(
     "AI_SYSTEM_PROMPT",

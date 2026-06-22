@@ -5,6 +5,23 @@ Tất cả thay đổi đáng chú ý của Helmes Agent được ghi lại ở 
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/),
 phiên bản theo [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-06-22
+
+### Added
+- **Complexity-based model routing** — tự chọn model theo độ phức tạp tác vụ:
+  - **light** (mặc định Sonnet) cho hỏi đáp, chat đơn giản, và vai trò "quản gia" (decompose + synthesis).
+  - **heavy** (mặc định Opus) cho suy luận sâu, coding, phân tích, thiết kế.
+  - `agent/model_router.py`: phân loại bằng skill + heuristic (từ khóa suy luận, độ dài, multi-step) — không tốn API call.
+  - Mỗi sub-task trong decomposition tự chọn model theo độ phức tạp riêng.
+- Config tiers per provider: `{ANTHROPIC,OPENAI,GEMINI}_MODEL_{LIGHT,HEAVY}` + `MODEL_ROUTING` (bật/tắt).
+- `/model auto` bật routing; `/model <id>` ghim 1 model (tắt routing).
+- `/info`, `/status` hiển thị model đang dùng + trạng thái routing; `/status` hiện model từng sub-task.
+
+### Changed
+- `provider.create()` nhận thêm tham số `model` để override per-call (phục vụ routing).
+- Summarizer + orchestration (decompose/synthesis) chạy trên model light → tiết kiệm chi phí.
+- `TaskResult` thêm field `model_used`.
+
 ## [1.2.0] - 2026-06-22
 
 ### Added
@@ -54,6 +71,7 @@ phiên bản theo [Semantic Versioning](https://semver.org/).
 - Multi-modal vision, context summarization, scheduled tasks (cron).
 - Docker Compose deployment + systemd auto-start.
 
+[1.3.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.0.0

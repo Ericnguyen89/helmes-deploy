@@ -9,6 +9,7 @@ from skills import SkillRegistry
 from task_result import TaskResult, TokenUsage
 from sub_agent import SubAgentExecutor
 from providers import create_provider, detect_provider
+from model_router import ModelRouter, ModelTier
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class AIEngine:
         context_summarize_threshold: int = 20,
         context_keep_recent: int = 6,
         summarize_model: str | None = None,
+        model_tiers: dict[str, dict] | None = None,
+        model_routing: bool = True,
     ):
         self.provider_name = provider_name
         self.model = model
@@ -44,11 +47,21 @@ class AIEngine:
         self.context_summarize_threshold = context_summarize_threshold
         self.context_keep_recent = context_keep_recent
         self.summarize_model = summarize_model
+        # Complexity-based model routing (light <-> heavy).
+        self.model_tiers = model_tiers or {}
+        self.model_routing = model_routing
+        # When set (via /model <name>), pins every call to that model (routing off).
+        self.pinned_model: str | None = None
         self.memory_store: MemoryStore | None = None
         self.skill_registry = SkillRegistry()
+        self.router = self._build_router(provider_name)
         self.provider = self._build_provider(provider_name, model)
         self.sub_agent = self._build_sub_agent()
         self._last_task_result: TaskResult | None = None
+
+    def _build_router(self, provider_name: str) -> ModelRouter | None:
+        tiers = self.model_tiers.get(provider_name)
+        return ModelRouter(tiers) if tiers else None
 
     def _build_provider(self, provider_name: str, model: str):
         cfg = self.provider_configs.get(provider_name, {})
@@ -69,14 +82,43 @@ class AIEngine:
             workspace_dir=self.workspace_dir,
             tool_timeout=self.tool_timeout,
             execute_tool_fn=execute_tool_async,
+            router=None if self.pinned_model else self.router,
         )
 
-    def set_model(self, model: str) -> tuple[bool, str]:
-        """Switch model (and provider, if the model belongs to another one).
+    def _light_model(self) -> str | None:
+        """Model for orchestration / summarization (the 'quản gia' role)."""
+        if self.pinned_model:
+            return self.pinned_model
+        if self.router:
+            return self.router.model_for(ModelTier.LIGHT)
+        return self.model
 
-        Returns (success, message). The provider is inferred from the model name;
-        switching requires that provider's API key to be configured.
+    def _route(self, message: str, skill_name: str | None = None) -> str | None:
+        """Pick the model for a top-level task by complexity."""
+        if self.pinned_model:
+            return self.pinned_model
+        if self.model_routing and self.router:
+            return self.router.model_for_message(message or "", skill_name)
+        return self.model
+
+    def set_model(self, model: str) -> tuple[bool, str]:
+        """Switch model or routing mode.
+
+        `/model auto` re-enables complexity-based routing (sonnet <-> opus).
+        `/model <id>` pins every call to that model (routing off); the provider
+        is inferred from the name and switching requires its API key.
+        Returns (success, message).
         """
+        model = (model or "").strip()
+        if model.lower() in ("auto", "router", "routing"):
+            self.pinned_model = None
+            self.sub_agent = self._build_sub_agent()  # re-attach router
+            if self.router:
+                light = self.router.model_for(ModelTier.LIGHT)
+                heavy = self.router.model_for(ModelTier.HEAVY)
+                return True, f"Model routing: AUTO (light={light} ↔ heavy={heavy} theo độ phức tạp)"
+            return True, "Model routing: AUTO"
+
         provider_name = detect_provider(model) or self.provider_name
         cfg = self.provider_configs.get(provider_name, {})
         if not cfg.get("api_key"):
@@ -85,14 +127,17 @@ class AIEngine:
                 f"'{provider_name}'. Set the corresponding *_API_KEY in .env."
             )
         try:
-            self.provider_name = provider_name
+            if provider_name != self.provider_name:
+                self.provider_name = provider_name
+                self.router = self._build_router(provider_name)
+                self.provider = self._build_provider(provider_name, model)
             self.model = model
-            self.provider = self._build_provider(provider_name, model)
+            self.pinned_model = model
             self.sub_agent = self._build_sub_agent()
         except Exception as e:
             logger.exception("Failed to switch model")
             return False, f"Failed to switch model: {e}"
-        return True, f"Model switched to: {model} (provider: {provider_name})"
+        return True, f"Model pinned to: {model} (provider: {provider_name}, routing off). /model auto để bật lại."
 
     def _budget_note(self, iteration: int) -> str:
         remaining = self.max_tool_iterations - iteration - 1
@@ -164,7 +209,7 @@ class AIEngine:
                         return text
 
             if len(messages) > self.context_summarize_threshold:
-                summary_model = self.summarize_model or self.model
+                summary_model = self.summarize_model or self._light_model()
                 messages = await summarize_conversation(
                     self.provider,
                     summary_model,
@@ -173,12 +218,17 @@ class AIEngine:
                 )
                 logger.info("Context summarized: %d messages remaining", len(messages))
 
+            # Pick the model by task complexity (light for Q&A, heavy for reasoning).
+            active_model = self._route(user_message, skill.name if skill else None)
+
             tools = TOOL_DEFINITIONS if use_tools else None
             current_messages = list(messages)
             task_result = TaskResult(task_id="main")
             task_result.start()
             if skill:
                 task_result.skill_used = skill.name
+            task_result.model_used = active_model
+            logger.info("Routed to model: %s", active_model)
 
             for iteration in range(self.max_tool_iterations):
                 remaining = self.max_tool_iterations - iteration - 1
@@ -187,6 +237,7 @@ class AIEngine:
 
                 response = await self.provider.create(
                     current_messages, system=system_prompt, tools=active_tools,
+                    model=active_model,
                 )
                 task_result.token_usage.add(response.usage)
                 task_result.tool_iterations = iteration + 1
@@ -245,7 +296,7 @@ class AIEngine:
 
             logger.warning("Reached max tool iterations (%d)", self.max_tool_iterations)
             try:
-                final = await self.provider.create(current_messages, system=system_prompt)
+                final = await self.provider.create(current_messages, system=system_prompt, model=active_model)
                 task_result.token_usage.add(final.usage)
                 text = final.text
                 if text:

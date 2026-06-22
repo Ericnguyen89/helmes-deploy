@@ -14,7 +14,7 @@ HELP_TEXT = """*Helmes Agent - Commands*
 /system - Show current system prompt
 /info - Show conversation stats
 /status - Show last task execution stats
-/model <name> - Switch AI model (admin)
+/model <name> - Pin AI model, or /model auto for complexity-based routing (admin)
 /memory - List all saved memories
 /schedule - List scheduled tasks
 /ping - Check if agent is alive"""
@@ -58,10 +58,18 @@ def handle_command(
         lines = [
             f"Helmes Agent v{__version__}",
             f"Messages in history: {stats['total_messages']}",
-            f"Current model: {current_model}",
         ]
         if ai_engine and hasattr(ai_engine, 'provider_name'):
             lines.append(f"Provider: {ai_engine.provider_name}")
+            if getattr(ai_engine, 'pinned_model', None):
+                lines.append(f"Model: {ai_engine.pinned_model} (pinned)")
+            elif getattr(ai_engine, 'model_routing', False) and getattr(ai_engine, 'router', None):
+                tiers = ai_engine.router.tier_models
+                lines.append(f"Model routing: AUTO (light={tiers.get('light')} ↔ heavy={tiers.get('heavy')})")
+            else:
+                lines.append(f"Model: {current_model}")
+        else:
+            lines.append(f"Current model: {current_model}")
         lines += [
             f"Custom system prompt: {'Yes' if prompt else 'No (using default)'}",
             f"Admin: {'Yes' if is_admin else 'No'}",
@@ -83,10 +91,13 @@ def handle_command(
         ]
         if tr.skill_used:
             lines.append(f"Skill: {tr.skill_used}")
+        if tr.model_used:
+            lines.append(f"Model: {tr.model_used}")
         if tr.sub_tasks:
             lines.append(f"\nSub-tasks: {len(tr.sub_tasks)}")
             for i, st in enumerate(tr.sub_tasks, 1):
-                lines.append(f"  {i}. [{st.status.value}] {st.skill_used or 'general'} — {st.tool_iterations} iters, {st.token_usage.total_tokens} tokens")
+                model = st.model_used or "?"
+                lines.append(f"  {i}. [{st.status.value}] {st.skill_used or 'general'} ({model}) — {st.tool_iterations} iters, {st.token_usage.total_tokens} tokens")
         return "\n".join(lines), None
 
     if cmd == "/system":
@@ -102,6 +113,14 @@ def handle_command(
 
     if cmd == "/model":
         if not arg:
+            if ai_engine and getattr(ai_engine, "pinned_model", None):
+                return f"Model pinned: {ai_engine.pinned_model}. /model auto để bật routing.", None
+            if ai_engine and getattr(ai_engine, "router", None) and getattr(ai_engine, "model_routing", False):
+                t = ai_engine.router.tier_models
+                return (
+                    f"Model routing: AUTO (light={t.get('light')} ↔ heavy={t.get('heavy')}).\n"
+                    f"/model <id> để ghim 1 model cụ thể.", None
+                )
             provider = getattr(ai_engine, "provider_name", "?") if ai_engine else "?"
             return f"Current model: {current_model} (provider: {provider})", None
         if not is_admin:

@@ -1,6 +1,6 @@
 # Helmes Agent
 
-**v1.2.0** · [Changelog](CHANGELOG.md)
+**v1.3.0** · [Changelog](CHANGELOG.md)
 
 AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, skill-based task routing, sub-agent decomposition, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
 
@@ -10,6 +10,7 @@ AI Agent framework sử dụng Signal làm giao diện chat, kết nối với C
 
 ### Core
 - **Multi-Provider LLM**: Claude (Anthropic), GPT (OpenAI), và Gemini (Google) — đổi provider qua `.env` hoặc runtime bằng `/model`
+- **Model Routing theo độ phức tạp**: tự chọn model nhẹ (Sonnet) cho hỏi đáp & quản gia, model mạnh (Opus) cho suy luận sâu — tiết kiệm chi phí
 - **14 tools tích hợp**: bash, file read/write, python, web search, web fetch, **browser (Puppeteer)**, email, memory, scheduler
 - **Browser automation**: headless Chromium qua Puppeteer — đọc trang JS/SPA, click/điền form, chụp screenshot
 - **Plugin system**: Dễ dàng thêm tool mới bằng cách tạo file plugin
@@ -131,6 +132,38 @@ Helmes hỗ trợ 3 nhà cung cấp LLM. Đặt `LLM_PROVIDER` để chọn prov
 /model claude-opus-4-6-thinking  → quay lại Claude (thinking)
 ```
 > Lưu ý: muốn đổi sang provider nào thì API key của provider đó phải được cấu hình sẵn trong `.env`.
+
+### Model Routing theo độ phức tạp
+
+Helmes tự động chọn model phù hợp với từng tác vụ để cân bằng **chất lượng vs chi phí**:
+
+| Tier | Model mặc định | Dùng cho |
+|---|---|---|
+| **light** | `claude-sonnet-4-6` | Hỏi đáp, chat đơn giản, vai trò "quản gia" (tách & tổng hợp sub-task), tóm tắt context |
+| **heavy** | `claude-opus-4-8` | Suy luận sâu, viết code, phân tích dữ liệu, thiết kế, debug, bài toán nhiều bước |
+
+**Cách phân loại** (trong [agent/model_router.py](agent/model_router.py)) — bằng regex + heuristic, **không tốn API call**:
+- Skill `coding` / `data_analysis` → heavy
+- Có từ khóa suy luận (phân tích, thiết kế, tối ưu, thuật toán, debug, so sánh, chứng minh...) → heavy
+- Tin nhắn dài (>500 ký tự) hoặc danh sách ≥3 bước → heavy
+- Còn lại → light
+
+Mỗi **sub-task** khi decompose cũng tự chọn model theo độ phức tạp riêng → task phức tạp dùng Opus cho phần khó, Sonnet cho phần nhẹ.
+
+**Cấu hình:**
+```env
+MODEL_ROUTING=true                          # bật routing (mặc định)
+ANTHROPIC_MODEL_LIGHT=claude-sonnet-4-6
+ANTHROPIC_MODEL_HEAVY=claude-opus-4-8
+```
+
+**Điều khiển runtime (admin):**
+```
+/model auto                  → bật routing tự động (Sonnet ↔ Opus)
+/model claude-opus-4-8       → ghim cứng 1 model (tắt routing)
+/info                        → xem trạng thái routing hiện tại
+/status                      → xem model đã dùng cho task gần nhất + từng sub-task
+```
 
 ### Cấu hình tools
 
@@ -387,6 +420,7 @@ helmes-deploy/
 │   │   ├── anthropic_provider.py  # Claude (native SDK)
 │   │   └── openai_provider.py     # OpenAI + Gemini (OpenAI-compatible)
 │   ├── sub_agent.py         # Sub-agent decomposition executor
+│   ├── model_router.py      # Complexity-based model routing (light/heavy)
 │   ├── task_result.py       # Structured task result + token tracking
 │   ├── store.py             # SQLite lưu hội thoại
 │   ├── memory.py            # Persistent memory store

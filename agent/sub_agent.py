@@ -16,6 +16,7 @@ import uuid
 from task_result import TaskResult, TaskStatus
 from skills import Skill
 from providers import LLMProvider
+from model_router import ModelRouter, ModelTier
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class SubAgentExecutor:
         workspace_dir: str,
         tool_timeout: int,
         execute_tool_fn,
+        router: ModelRouter | None = None,
     ):
         self.provider = provider
         self.tools_enabled = tools_enabled
@@ -64,6 +66,15 @@ class SubAgentExecutor:
         self.workspace_dir = workspace_dir
         self.tool_timeout = tool_timeout
         self.execute_tool_fn = execute_tool_fn
+        self.router = router
+
+    def _light(self) -> str | None:
+        """Model for the orchestration role (decompose + synthesis)."""
+        return self.router.model_for(ModelTier.LIGHT) if self.router else None
+
+    def _route(self, desc: str, skill_name: str | None) -> str | None:
+        """Model for a sub-task, chosen by its complexity."""
+        return self.router.model_for_message(desc, skill_name) if self.router else None
 
     async def try_decompose(self, message: str) -> list[dict] | None:
         """Try to decompose a complex task into sub-tasks.
@@ -75,6 +86,7 @@ class SubAgentExecutor:
                 [{"role": "user", "content": message}],
                 system=DECOMPOSE_PROMPT,
                 max_tokens=1024,
+                model=self._light(),  # orchestration runs on the light model
             )
             text = response.text.strip()
             if text.startswith("```"):
@@ -106,10 +118,12 @@ class SubAgentExecutor:
         max_iterations: int,
         sender: str = "",
         context: str = "",
+        model: str | None = None,
     ) -> TaskResult:
         """Execute a single sub-task with focused prompt and iteration budget."""
         task_id = str(uuid.uuid4())[:8]
         result = TaskResult(task_id=task_id, skill_used=skill.name if skill else None)
+        result.model_used = model
         result.start()
 
         system_prompt = "You are Helmes, executing a focused sub-task."
@@ -127,7 +141,7 @@ class SubAgentExecutor:
                 active_tools = None if remaining <= 1 else tools
 
                 response = await self.provider.create(
-                    messages, system=system_prompt, tools=active_tools,
+                    messages, system=system_prompt, tools=active_tools, model=model,
                 )
                 result.tool_iterations = iteration + 1
                 result.token_usage.add(response.usage)
@@ -169,7 +183,7 @@ class SubAgentExecutor:
 
             # Exhausted iterations — force final response
             try:
-                final = await self.provider.create(messages, system=system_prompt)
+                final = await self.provider.create(messages, system=system_prompt, model=model)
                 result.token_usage.add(final.usage)
                 result.complete(final.text or "Sub-task completed but no summary generated.")
             except Exception:
@@ -210,10 +224,11 @@ class SubAgentExecutor:
                 desc = sub.get("task", "")
                 task_type = sub.get("type", "general")
                 skill = skill_registry.get(task_type)
+                model = self._route(desc, task_type)
 
                 task_result = await self.execute_subtask(
                     desc, skill, per_task_budget,
-                    sender=sender, context=context_so_far,
+                    sender=sender, context=context_so_far, model=model,
                 )
                 results.append((desc, task_result))
                 parent_result.sub_tasks.append(task_result)
@@ -228,8 +243,9 @@ class SubAgentExecutor:
                     desc = sub.get("task", "")
                     task_type = sub.get("type", "general")
                     skill = skill_registry.get(task_type)
+                    model = self._route(desc, task_type)
                     return desc, await self.execute_subtask(
-                        desc, skill, per_task_budget, sender=sender,
+                        desc, skill, per_task_budget, sender=sender, model=model,
                     )
 
             task_results = await asyncio.gather(
@@ -255,6 +271,7 @@ class SubAgentExecutor:
             synth_response = await self.provider.create(
                 [{"role": "user", "content": combined}],
                 system=SYNTHESIS_PROMPT,
+                model=self._light(),  # synthesis runs on the light model
             )
             parent_result.token_usage.add(synth_response.usage)
             final_text = synth_response.text or combined

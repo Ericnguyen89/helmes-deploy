@@ -132,18 +132,19 @@ class OpenAIProvider(LLMProvider):
             client_kwargs["base_url"] = self.base_url
         self.client = AsyncOpenAI(**client_kwargs)
 
-    def _is_reasoning(self) -> bool:
-        m = self.model.lower()
+    def _is_reasoning(self, model: str) -> bool:
+        m = model.lower()
         return m.startswith(("o1", "o3", "o4")) or "reasoning" in m
 
-    async def create(self, messages, system=None, tools=None, max_tokens=None) -> LLMResponse:
+    async def create(self, messages, system=None, tools=None, max_tokens=None, model=None) -> LLMResponse:
+        use_model = model or self.model
         kwargs = {
-            "model": self.model,
+            "model": use_model,
             "messages": to_openai_messages(messages, system),
         }
 
         limit = max_tokens or self.max_tokens
-        if self._is_reasoning():
+        if self._is_reasoning(use_model):
             kwargs["max_completion_tokens"] = limit
         else:
             kwargs["max_tokens"] = limit

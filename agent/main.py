@@ -204,6 +204,8 @@ async def main():
         context_summarize_threshold=config.CONTEXT_SUMMARIZE_THRESHOLD,
         context_keep_recent=config.CONTEXT_KEEP_RECENT,
         summarize_model=config.SUMMARIZE_MODEL,
+        model_tiers=config.MODEL_TIERS,
+        model_routing=config.MODEL_ROUTING,
     )
     store = ConversationStore(config.DB_PATH)
     memory_store = MemoryStore(config.DB_PATH)
@@ -224,6 +226,11 @@ async def main():
     logger.info("Provider: %s", config.ACTIVE_PROVIDER)
     logger.info("Model: %s", config.ACTIVE_MODEL)
     logger.info("Base URL: %s", active_cfg.get("base_url") or "(provider default)")
+    if config.MODEL_ROUTING:
+        tiers = config.MODEL_TIERS.get(config.ACTIVE_PROVIDER, {})
+        logger.info("Model routing: ON (light=%s, heavy=%s)", tiers.get("light"), tiers.get("heavy"))
+    else:
+        logger.info("Model routing: OFF (fixed=%s)", config.ACTIVE_MODEL)
     logger.info("Tools: %s (admin_only=%s)", config.TOOLS_ENABLED, config.TOOLS_ADMIN_ONLY)
     logger.info("Workspace: %s", config.WORKSPACE_DIR)
     logger.info("Allowed: %s", config.ALLOWED_NUMBERS)

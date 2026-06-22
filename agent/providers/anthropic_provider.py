@@ -49,17 +49,18 @@ class AnthropicProvider(LLMProvider):
             client_kwargs["base_url"] = self.base_url
         self.client = AsyncAnthropic(**client_kwargs)
 
-    def _is_thinking(self) -> bool:
-        return "thinking" in self.model.lower()
+    def _is_thinking(self, model: str) -> bool:
+        return "thinking" in model.lower()
 
-    async def create(self, messages, system=None, tools=None, max_tokens=None) -> LLMResponse:
+    async def create(self, messages, system=None, tools=None, max_tokens=None, model=None) -> LLMResponse:
+        use_model = model or self.model
         kwargs = {
-            "model": self.model,
+            "model": use_model,
             "max_tokens": max_tokens or self.max_tokens,
             "messages": messages,
         }
 
-        if self._is_thinking():
+        if self._is_thinking(use_model):
             kwargs["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": self.thinking_budget,

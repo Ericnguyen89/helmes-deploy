@@ -70,10 +70,12 @@ class LLMProvider(ABC):
         system: str | None = None,
         tools: list[dict] | None = None,
         max_tokens: int | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         """Send a request and return a normalized response.
 
         `tools` is in Anthropic format ({name, description, input_schema}); the
-        provider converts to its native format if needed.
+        provider converts to its native format if needed. `model` overrides the
+        provider's default model for this call (used by complexity-based routing).
         """
         raise NotImplementedError

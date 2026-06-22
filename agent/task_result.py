@@ -68,6 +68,7 @@ class TaskResult:
     result: str | None = None
     error: str | None = None
     skill_used: str | None = None
+    model_used: str | None = None
     tool_iterations: int = 0
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     sub_tasks: list["TaskResult"] = field(default_factory=list)
@@ -110,6 +111,8 @@ class TaskResult:
         ]
         if self.skill_used:
             parts.append(f"Skill: {self.skill_used}")
+        if self.model_used:
+            parts.append(f"Model: {self.model_used}")
         if self.sub_tasks:
             parts.append(f"Sub-tasks: {len(self.sub_tasks)}")
         return " | ".join(parts)
@@ -124,6 +127,8 @@ class TaskResult:
         }
         if self.skill_used:
             d["skill"] = self.skill_used
+        if self.model_used:
+            d["model"] = self.model_used
         if self.sub_tasks:
             d["sub_tasks"] = [s.to_dict() for s in self.sub_tasks]
         if self.error:
