@@ -1,4 +1,5 @@
 import logging
+from version import __version__
 from store import ConversationStore
 from memory import MemoryStore
 from scheduler import Scheduler
@@ -45,7 +46,7 @@ def handle_command(
         return HELP_TEXT, None
 
     if cmd == "/ping":
-        return "Pong! Helmes Agent is running.", None
+        return f"Pong! Helmes Agent v{__version__} is running.", None
 
     if cmd == "/reset":
         store.clear_conversation(sender)
@@ -55,6 +56,7 @@ def handle_command(
         stats = store.get_stats(sender)
         prompt = store.get_system_prompt(sender)
         lines = [
+            f"Helmes Agent v{__version__}",
             f"Messages in history: {stats['total_messages']}",
             f"Current model: {current_model}",
         ]

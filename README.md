@@ -1,5 +1,7 @@
 # Helmes Agent
 
+**v1.1.0** · [Changelog](CHANGELOG.md)
+
 AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, skill-based task routing, sub-agent decomposition, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
 
 > **Lưu ý:** Helmes Agent là một agent framework độc lập, không liên quan đến Hermes model của Nous Research.

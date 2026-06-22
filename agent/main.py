@@ -5,6 +5,7 @@ import signal
 import logging
 
 import config
+from version import __version__
 from signal_client import SignalClient, encode_image_base64
 from ai_engine import AIEngine
 from store import ConversationStore
@@ -173,7 +174,7 @@ async def wait_for_signal_api(signal_client: SignalClient, max_retries: int = 30
 
 async def main():
     print(BANNER)
-    logger.info("Starting Helmes Agent (async)...")
+    logger.info("Starting Helmes Agent v%s (async)...", __version__)
 
     if not config.SIGNAL_PHONE_NUMBER:
         logger.error("SIGNAL_PHONE_NUMBER is not set")
