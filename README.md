@@ -1,20 +1,26 @@
 # Helmes Agent
 
-AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
+AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, skill-based task routing, sub-agent decomposition, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
 
 > **Lưu ý:** Helmes Agent là một agent framework độc lập, không liên quan đến Hermes model của Nous Research.
 
 ## Tính năng
 
+### Core
 - **13 tools tích hợp**: bash, file read/write, python, web search, web fetch, email, memory, scheduler
 - **Plugin system**: Dễ dàng thêm tool mới bằng cách tạo file plugin
 - **Persistent memory**: Agent nhớ thông tin qua các cuộc hội thoại
 - **Scheduled tasks**: Lên lịch chạy task tự động (cron syntax)
 - **Context summarization**: Tự động tóm tắt khi hội thoại dài
 - **Multi-modal**: Nhận và phân tích ảnh qua Signal (Claude Vision)
-- **Task planning**: Agent tự lập kế hoạch cho task phức tạp
 - **Dual search engine**: Google Custom Search hoặc DuckDuckGo
 - **Gmail integration**: Gửi email kết quả qua Gmail SMTP
+
+### Agent Intelligence (DeerFlow-inspired)
+- **Skill System**: Auto-classify task → load focused prompt (research, coding, sysadmin, data analysis) → model hoạt động hiệu quả hơn
+- **Sub-agent Decomposition**: Task phức tạp tự động tách thành sub-tasks, chạy song song hoặc tuần tự, rồi tổng hợp kết quả
+- **Budget-aware Tool Loop**: Model biết còn bao nhiêu iteration, tự wrap up khi sắp hết → không bao giờ mất kết quả
+- **Structured Task Tracking**: Token counting, duration, status tracking cho mỗi task — xem qua `/status`
 
 ## Kiến trúc
 
@@ -22,10 +28,33 @@ AI Agent framework sử dụng Signal làm giao diện chat, kết nối với C
 Signal App ──► Signal Server ──► signal-cli-rest-api ──► Helmes Agent ──► Claude API
                                     (Docker)              (Python)
                                                              │
-                                                     ┌──────┼──────┐
-                                                  SQLite   Plugins  Scheduler
-                                                (history,  (13 tools) (cron)
-                                                 memory)
+                                                 ┌───────────┼───────────┐
+                                              SQLite      Plugins     Scheduler
+                                            (history,    (13 tools)    (cron)
+                                             memory)
+                                                             │
+                                              ┌──────────────┼──────────────┐
+                                           Skills        Sub-agent      TaskResult
+                                       (5 task types)  (decomposition)  (tracking)
+```
+
+### Agent Flow
+
+```
+User Message → Skill Classifier → Matched Skill (research/coding/sysadmin/...)
+                                        ↓
+                              Task Decomposer (LLM)
+                              ↓               ↓
+                        Simple task      Complex task
+                              ↓               ↓
+                     Single tool loop    Decompose → Sub-tasks
+                     (budget-aware)      ↓         ↓        ↓
+                                     Sub-agent  Sub-agent  Sub-agent
+                                     (skill A)  (skill B)  (skill C)
+                                         ↓         ↓        ↓
+                                          Synthesize results
+                                                ↓
+                                          Final Response + TaskResult
 ```
 
 ## Yêu cầu hệ thống
@@ -162,7 +191,8 @@ Services tự khởi động khi VPS reboot nhờ systemd (`helmes-agent.service
 | `/help` | Hiện danh sách lệnh | Tất cả |
 | `/reset` | Xoá lịch sử hội thoại | Tất cả |
 | `/ping` | Kiểm tra agent hoạt động | Tất cả |
-| `/info` | Xem thống kê hội thoại | Tất cả |
+| `/info` | Xem thống kê hội thoại + skills loaded | Tất cả |
+| `/status` | Xem stats task gần nhất (tokens, duration, sub-tasks) | Tất cả |
 | `/memory` | Xem danh sách bộ nhớ dài hạn | Tất cả |
 | `/schedule` | Xem danh sách scheduled tasks | Tất cả |
 | `/system <prompt>` | Đặt system prompt tuỳ chỉnh | Admin |
@@ -179,7 +209,7 @@ Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu
 | `file_write` | Ghi/tạo file |
 | `python` | Thực thi code Python |
 | `web_search` | Tìm kiếm internet (Google/DuckDuckGo) |
-| `web_fetch` | Tải và đọc nội dung trang web |
+| `web_fetch` | Tải và đọc nội dung trang web (HTML + XML/sitemap) |
 | `send_email` | Gửi email qua Gmail |
 | `memory_save` | Lưu thông tin vào bộ nhớ dài hạn |
 | `memory_recall` | Tìm kiếm thông tin đã lưu |
@@ -188,20 +218,80 @@ Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu
 | `schedule_list` | Xem danh sách scheduled tasks |
 | `schedule_remove` | Xoá scheduled task |
 
+## Skill System
+
+Agent tự động phân loại task và load prompt phù hợp:
+
+| Skill | Kích hoạt khi | Tool ưu tiên |
+|---|---|---|
+| `research` | Tìm kiếm, tra cứu, so sánh, tin tức | web_search, web_fetch |
+| `coding` | Viết code, debug, deploy, git | bash, python, file_read/write |
+| `sysadmin` | Server, docker, nginx, network, logs | bash, file_read/write |
+| `data_analysis` | Phân tích dữ liệu, thống kê, báo cáo | python, bash, file_read |
+| `general` | Câu hỏi đơn giản, hội thoại chung | all |
+
+Mỗi skill bao gồm hướng dẫn hiệu quả riêng (VD: research skill hướng dẫn model chỉ fetch 2-3 trang, coding skill hướng dẫn viết code hoàn chỉnh trong 1 pass).
+
+### Tạo skill mới
+
+Tạo file `.md` trong `agent/skills/definitions/`:
+
+```markdown
+---
+name: my_skill
+description: Mô tả skill
+tools: bash, python
+---
+
+## My Skill
+
+Hướng dẫn cho agent khi thực hiện loại task này...
+```
+
+Thêm classifier rule trong `agent/skills/__init__.py`:
+
+```python
+_CLASSIFIER_RULES.append(("my_skill", re.compile(r"(keyword1|keyword2)", re.IGNORECASE)))
+```
+
+## Sub-agent Decomposition
+
+Khi nhận task phức tạp, agent tự động:
+
+1. **Phân tích** — LLM đánh giá task có cần tách không
+2. **Tách** — Chia thành 2-4 sub-tasks, mỗi sub-task có skill riêng
+3. **Thực thi** — Sub-tasks chạy song song (độc lập) hoặc tuần tự (phụ thuộc)
+4. **Tổng hợp** — Kết quả được synthesize thành response mạch lạc
+
+Mỗi sub-task có iteration budget riêng → không bao giờ 1 sub-task chiếm hết budget.
+
+### Ví dụ
+
+```
+Bạn: Tìm hiểu về Next.js 15 và so sánh với Remix, sau đó viết một ví dụ hello world
+
+→ Agent tách thành:
+  Sub-task 1 (research): Tìm hiểu Next.js 15 features
+  Sub-task 2 (research): Tìm hiểu Remix features
+  Sub-task 3 (coding): Viết hello world example
+→ Sub-tasks 1+2 chạy song song, sub-task 3 chạy sau
+→ Tổng hợp thành response hoàn chỉnh
+```
+
 ### Ví dụ sử dụng qua Signal
 
 ```
 Bạn: Tìm giá Bitcoin hiện tại
-→ Agent dùng web_search, trả lời kết quả
+→ Skill: research → Agent dùng web_search, trả lời kết quả
 
 Bạn: Viết script Python tính fibonacci, lưu vào file
-→ Agent dùng file_write + python để tạo và test
+→ Skill: coding → Agent dùng file_write + python để tạo và test
+
+Bạn: Kiểm tra disk space và memory trên server
+→ Skill: sysadmin → Agent dùng bash, chạy df + free
 
 Bạn: Mỗi sáng 8h gửi cho tôi tin tức công nghệ
 → Agent dùng schedule_add với cron "0 8 * * *"
-
-Bạn: Gửi kết quả qua email tuannm@gmail.com
-→ Agent dùng send_email
 
 Bạn: [Gửi ảnh] Ảnh này là gì?
 → Agent phân tích ảnh bằng Claude Vision
@@ -252,14 +342,24 @@ helmes-deploy/
 │   ├── main.py              # Entry point, polling loop
 │   ├── config.py            # Cấu hình từ biến môi trường
 │   ├── signal_client.py     # Client gửi/nhận tin & ảnh Signal
-│   ├── ai_engine.py         # Kết nối Claude API + tool loop
+│   ├── ai_engine.py         # Claude API + budget-aware tool loop
+│   ├── sub_agent.py         # Sub-agent decomposition executor
+│   ├── task_result.py       # Structured task result + token tracking
 │   ├── store.py             # SQLite lưu hội thoại
 │   ├── memory.py            # Persistent memory store
 │   ├── summarizer.py        # Context summarization
-│   ├── planner.py           # Task planning prompt
+│   ├── planner.py           # Task planning + tool efficiency prompt
 │   ├── scheduler.py         # Cron-based task scheduler
-│   ├── commands.py          # Xử lý lệnh slash
+│   ├── commands.py          # Xử lý lệnh slash (/help, /status, ...)
 │   ├── tools.py             # Tool facade (delegates to plugins)
+│   ├── skills/              # Skill system (DeerFlow-inspired)
+│   │   ├── __init__.py      # SkillRegistry + classifier
+│   │   └── definitions/     # Skill prompt files
+│   │       ├── research.md
+│   │       ├── coding.md
+│   │       ├── sysadmin.md
+│   │       ├── data_analysis.md
+│   │       └── general.md
 │   └── plugins/             # Plugin system
 │       ├── __init__.py      # Auto-discovery registry
 │       ├── base.py          # ToolPlugin base class
@@ -275,6 +375,19 @@ helmes-deploy/
     ├── signal-cli/          # Dữ liệu signal-cli
     └── agent/               # SQLite database
 ```
+
+## Budget-aware Tool Loop
+
+Hệ thống quản lý tool iterations thông minh, ngăn việc hết budget giữa chừng:
+
+| Giai đoạn | Hành vi |
+|---|---|
+| 0–50% budget | Hoạt động bình thường |
+| 50–70% budget | Thông báo: "Be efficient with remaining calls" |
+| 70–90% budget | Cảnh báo: "Start wrapping up" |
+| 90–97% budget | Khẩn cấp: "MUST respond NOW" |
+| 97–100% budget | Force stop: bỏ tools, buộc model trả lời text |
+| Fallback | Gọi thêm 1 lần không tools để tổng hợp kết quả |
 
 ## Cập nhật
 
