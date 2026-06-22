@@ -1,7 +1,7 @@
 ---
 name: research
 description: Deep web research with structured output
-tools: web_search, web_fetch
+tools: web_search, web_fetch, browser
 ---
 
 ## Research Skill

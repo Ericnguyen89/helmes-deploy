@@ -1,6 +1,6 @@
 # Helmes Agent
 
-**v1.1.0** · [Changelog](CHANGELOG.md)
+**v1.2.0** · [Changelog](CHANGELOG.md)
 
 AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, skill-based task routing, sub-agent decomposition, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
 
@@ -10,7 +10,8 @@ AI Agent framework sử dụng Signal làm giao diện chat, kết nối với C
 
 ### Core
 - **Multi-Provider LLM**: Claude (Anthropic), GPT (OpenAI), và Gemini (Google) — đổi provider qua `.env` hoặc runtime bằng `/model`
-- **13 tools tích hợp**: bash, file read/write, python, web search, web fetch, email, memory, scheduler
+- **14 tools tích hợp**: bash, file read/write, python, web search, web fetch, **browser (Puppeteer)**, email, memory, scheduler
+- **Browser automation**: headless Chromium qua Puppeteer — đọc trang JS/SPA, click/điền form, chụp screenshot
 - **Plugin system**: Dễ dàng thêm tool mới bằng cách tạo file plugin
 - **Persistent memory**: Agent nhớ thông tin qua các cuộc hội thoại
 - **Scheduled tasks**: Lên lịch chạy task tự động (cron syntax)
@@ -228,7 +229,7 @@ Services tự khởi động khi VPS reboot nhờ systemd (`helmes-agent.service
 | `/system <prompt>` | Đặt system prompt tuỳ chỉnh | Admin |
 | `/model <name>` | Đổi model AI | Admin |
 
-## Tools (13 công cụ)
+## Tools (14 công cụ)
 
 Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu cầu:
 
@@ -240,6 +241,7 @@ Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu
 | `python` | Thực thi code Python |
 | `web_search` | Tìm kiếm internet (Google/DuckDuckGo) |
 | `web_fetch` | Tải và đọc nội dung trang web (HTML + XML/sitemap) |
+| `browser` | Mở trang trong Chromium thật (Puppeteer): render JS/SPA, click/điền form, screenshot |
 | `send_email` | Gửi email qua Gmail |
 | `memory_save` | Lưu thông tin vào bộ nhớ dài hạn |
 | `memory_recall` | Tìm kiếm thông tin đã lưu |
@@ -320,6 +322,12 @@ Bạn: Viết script Python tính fibonacci, lưu vào file
 Bạn: Kiểm tra disk space và memory trên server
 → Skill: sysadmin → Agent dùng bash, chạy df + free
 
+Bạn: Mở trang [SPA cần JS] và lấy giá sản phẩm
+→ Agent dùng browser (Puppeteer) render JS rồi trích xuất nội dung
+
+Bạn: Chụp màn hình trang chủ vnexpress.net
+→ Agent dùng browser với screenshot=true, lưu PNG vào workspace
+
 Bạn: Mỗi sáng 8h gửi cho tôi tin tức công nghệ
 → Agent dùng schedule_add với cron "0 8 * * *"
 
@@ -395,6 +403,9 @@ helmes-deploy/
 │   │       ├── sysadmin.md
 │   │       ├── data_analysis.md
 │   │       └── general.md
+│   ├── browser/             # Node Puppeteer helper (browser tool)
+│   │   ├── package.json
+│   │   └── browser.js       # Headless Chromium driver (JSON stdin/stdout)
 │   └── plugins/             # Plugin system
 │       ├── __init__.py      # Auto-discovery registry
 │       ├── base.py          # ToolPlugin base class
@@ -403,6 +414,7 @@ helmes-deploy/
 │       ├── python_tool.py
 │       ├── web_search_tool.py
 │       ├── web_fetch_tool.py
+│       ├── browser_tool.py  # Puppeteer browser automation (subprocess → Node)
 │       ├── email_tool.py
 │       ├── memory_tools.py
 │       └── scheduler_tools.py

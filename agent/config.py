@@ -79,3 +79,7 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
 SEARCH_ENGINE = os.getenv("SEARCH_ENGINE", "duckduckgo").lower()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "").strip()
+
+# Browser automation (Puppeteer/Chromium)
+BROWSER_ENABLED = os.getenv("BROWSER_ENABLED", "true").lower() in ("true", "1", "yes")
+BROWSER_NODE_BIN = os.getenv("BROWSER_NODE_BIN", "node").strip() or "node"

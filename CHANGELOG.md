@@ -5,6 +5,24 @@ Tất cả thay đổi đáng chú ý của Helmes Agent được ghi lại ở 
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/),
 phiên bản theo [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-06-22
+
+### Added
+- **Browser automation tool** (`browser`) — điều khiển headless Chromium qua Puppeteer.
+  - Render trang JavaScript/SPA mà `web_fetch` (HTTP thuần) không đọc được.
+  - Thao tác trên trang: `click`, `type`, `wait_for`, `wait`, `press`, `evaluate`, `goto`.
+  - Chụp screenshot lưu vào workspace (`screenshot`, `full_page`).
+  - Node Puppeteer helper (`agent/browser/browser.js`) chạy qua subprocess, giao tiếp JSON — khớp model plugin sync, cô lập khỏi tiến trình Python.
+- Config: `BROWSER_ENABLED`, `BROWSER_NODE_BIN`.
+- Skill `research` thêm `browser` vào tool hints.
+
+### Changed
+- Dockerfile: cài `chromium` (apt tự kéo thư viện phụ thuộc) + `npm install puppeteer-core`; set `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`.
+- Số lượng tool tích hợp: 13 → 14.
+
+### Notes
+- Deploy bản này cần rebuild image (`docker compose up -d --build`) để cài Chromium + puppeteer-core.
+
 ## [1.1.0] - 2026-06-22
 
 ### Added
@@ -36,5 +54,6 @@ phiên bản theo [Semantic Versioning](https://semver.org/).
 - Multi-modal vision, context summarization, scheduled tasks (cron).
 - Docker Compose deployment + systemd auto-start.
 
+[1.2.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.0.0
