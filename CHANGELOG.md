@@ -5,6 +5,19 @@ Tất cả thay đổi đáng chú ý của Helmes Agent được ghi lại ở 
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/),
 phiên bản theo [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-06-22
+
+### Added
+- **Tool `send_file`** — agent gửi tệp/ảnh từ workspace cho người chat dưới dạng Signal attachment.
+  - Ví dụ: "chụp màn hình bài báo ở URL này rồi gửi cho tôi" → browser chụp PNG → `send_file` đính kèm gửi đi.
+  - Hỗ trợ mọi loại file (ảnh, PDF, chart...) — tự nhận diện MIME.
+  - Cross-thread bridge: `execute()` (worker thread) → `asyncio.run_coroutine_threadsafe` → SignalClient trên main loop.
+  - Luôn khả dụng kể cả ở sub-agent (delivery tool không bị skill filter lọc bỏ).
+- Tổng tool tích hợp: 14 → 15.
+
+### Fixed
+- `SignalClient.send_file` viết lại dùng JSON `base64_attachments` (data-URI) cho đúng API `/v2/send` của signal-cli-rest-api (bản cũ dùng multipart `files=` không hợp lệ với v2/send).
+
 ## [1.3.0] - 2026-06-22
 
 ### Added
@@ -71,6 +84,7 @@ phiên bản theo [Semantic Versioning](https://semver.org/).
 - Multi-modal vision, context summarization, scheduled tasks (cron).
 - Docker Compose deployment + systemd auto-start.
 
+[1.4.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Ericnguyen89/helmes-deploy/releases/tag/v1.1.0

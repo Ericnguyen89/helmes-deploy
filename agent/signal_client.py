@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import mimetypes
 import os
 
 import httpx
@@ -64,23 +65,28 @@ class SignalClient:
                 logger.exception("Error sending message to %s", recipient)
 
     async def send_file(self, recipient: str, file_path: str, message: str = ""):
-        try:
-            filename = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                resp = await self.client.post(
-                    "/v2/send",
-                    data={
-                        "number": self.phone_number,
-                        "recipients": recipient,
-                        "message": message,
-                    },
-                    files={"attachments": (filename, f)},
-                    timeout=60,
-                )
-            resp.raise_for_status()
-            logger.info("File sent to %s: %s", recipient, filename)
-        except Exception:
-            logger.exception("Error sending file to %s", recipient)
+        """Send a file as a Signal attachment via /v2/send (JSON base64_attachments).
+
+        Raises on failure so callers (the send_file tool) can report it.
+        """
+        filename = os.path.basename(file_path)
+        mime = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+        with open(file_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        # signal-cli-rest-api accepts a data-URI form with an optional filename.
+        attachment = f"data:{mime};filename={filename};base64,{b64}"
+        resp = await self.client.post(
+            "/v2/send",
+            json={
+                "number": self.phone_number,
+                "recipients": [recipient],
+                "message": message or "",
+                "base64_attachments": [attachment],
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        logger.info("File sent to %s: %s (%s)", recipient, filename, mime)
 
     async def download_attachment(self, attachment_id: str, save_dir: str = "/tmp") -> str | None:
         try:

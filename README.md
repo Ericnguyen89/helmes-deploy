@@ -1,6 +1,6 @@
 # Helmes Agent
 
-**v1.3.0** · [Changelog](CHANGELOG.md)
+**v1.4.0** · [Changelog](CHANGELOG.md)
 
 AI Agent framework sử dụng Signal làm giao diện chat, kết nối với Claude API (Anthropic). Hỗ trợ tool execution, skill-based task routing, sub-agent decomposition, persistent memory, scheduled tasks, multi-modal (vision), và nhiều hơn nữa.
 
@@ -262,7 +262,7 @@ Services tự khởi động khi VPS reboot nhờ systemd (`helmes-agent.service
 | `/system <prompt>` | Đặt system prompt tuỳ chỉnh | Admin |
 | `/model <name>` | Đổi model AI | Admin |
 
-## Tools (14 công cụ)
+## Tools (15 công cụ)
 
 Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu cầu:
 
@@ -275,6 +275,7 @@ Agent có thể tự quyết định sử dụng tool nào phù hợp với yêu
 | `web_search` | Tìm kiếm internet (Google/DuckDuckGo) |
 | `web_fetch` | Tải và đọc nội dung trang web (HTML + XML/sitemap) |
 | `browser` | Mở trang trong Chromium thật (Puppeteer): render JS/SPA, click/điền form, screenshot |
+| `send_file` | Đính kèm & gửi tệp/ảnh từ workspace cho người chat qua Signal (vd: screenshot, PDF, chart) |
 | `send_email` | Gửi email qua Gmail |
 | `memory_save` | Lưu thông tin vào bộ nhớ dài hạn |
 | `memory_recall` | Tìm kiếm thông tin đã lưu |
@@ -358,8 +359,8 @@ Bạn: Kiểm tra disk space và memory trên server
 Bạn: Mở trang [SPA cần JS] và lấy giá sản phẩm
 → Agent dùng browser (Puppeteer) render JS rồi trích xuất nội dung
 
-Bạn: Chụp màn hình trang chủ vnexpress.net
-→ Agent dùng browser với screenshot=true, lưu PNG vào workspace
+Bạn: Chụp màn hình bài báo ở [URL] rồi gửi cho tôi
+→ Agent dùng browser (screenshot=true) chụp PNG, rồi send_file đính kèm ảnh gửi lại bạn qua Signal
 
 Bạn: Mỗi sáng 8h gửi cho tôi tin tức công nghệ
 → Agent dùng schedule_add với cron "0 8 * * *"
@@ -449,6 +450,7 @@ helmes-deploy/
 │       ├── web_search_tool.py
 │       ├── web_fetch_tool.py
 │       ├── browser_tool.py  # Puppeteer browser automation (subprocess → Node)
+│       ├── signal_tools.py  # send_file: gửi đính kèm tệp/ảnh ra Signal
 │       ├── email_tool.py
 │       ├── memory_tools.py
 │       └── scheduler_tools.py

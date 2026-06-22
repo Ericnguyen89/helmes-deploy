@@ -106,7 +106,8 @@ class SubAgentExecutor:
         if not self.tools_enabled:
             return None
         if skill and skill.tool_hints:
-            hint_set = set(skill.tool_hints)
+            # Always allow delivery tools through the skill filter.
+            hint_set = set(skill.tool_hints) | {"send_file"}
             scoped = [t for t in self.tool_definitions if t["name"] in hint_set]
             return scoped or self.tool_definitions
         return self.tool_definitions

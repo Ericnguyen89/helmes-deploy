@@ -14,6 +14,7 @@ from memory import MemoryStore
 from plugins.memory_tools import set_memory_store
 from scheduler import Scheduler
 from plugins.scheduler_tools import set_scheduler
+from plugins.signal_tools import set_signal_sender
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -211,6 +212,8 @@ async def main():
     memory_store = MemoryStore(config.DB_PATH)
     ai.memory_store = memory_store
     set_memory_store(memory_store)
+    # Let the send_file tool deliver attachments via the main loop.
+    set_signal_sender(signal_client, asyncio.get_running_loop())
 
     async def scheduled_task_callback(sender: str, prompt: str):
         system_prompt = store.get_system_prompt(sender) or config.AI_SYSTEM_PROMPT
