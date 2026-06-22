@@ -4,16 +4,18 @@ When a complex task is detected, the lead agent decomposes it into focused
 sub-tasks. Each sub-task runs with its own system prompt (skill), scoped
 tools, and iteration budget — preventing any single sub-task from exhausting
 the full budget.
+
+Provider-agnostic: works with any LLMProvider (Anthropic, OpenAI, Gemini).
 """
 
 import asyncio
+import json
 import logging
 import uuid
 
-from anthropic import AsyncAnthropic
-
-from task_result import TaskResult, TaskStatus, TokenUsage
+from task_result import TaskResult, TaskStatus
 from skills import Skill
+from providers import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,30 +40,29 @@ Rules:
 
 Respond ONLY with the JSON, no other text."""
 
+SYNTHESIS_PROMPT = (
+    "Synthesize the following sub-task results into a coherent, well-structured "
+    "response for the user. Respond in the same language as the content."
+)
+
 
 class SubAgentExecutor:
     """Executes focused sub-tasks with scoped prompts and tools."""
 
     def __init__(
         self,
-        client: AsyncAnthropic,
-        model: str,
-        max_tokens: int,
+        provider: LLMProvider,
         tools_enabled: bool,
         tool_definitions: list[dict],
         workspace_dir: str,
         tool_timeout: int,
-        thinking_budget: int,
         execute_tool_fn,
     ):
-        self.client = client
-        self.model = model
-        self.max_tokens = max_tokens
+        self.provider = provider
         self.tools_enabled = tools_enabled
         self.tool_definitions = tool_definitions
         self.workspace_dir = workspace_dir
         self.tool_timeout = tool_timeout
-        self.thinking_budget = thinking_budget
         self.execute_tool_fn = execute_tool_fn
 
     async def try_decompose(self, message: str) -> list[dict] | None:
@@ -70,23 +71,12 @@ class SubAgentExecutor:
         Returns list of sub-task dicts or None if task is simple.
         """
         try:
-            kwargs = {
-                "model": self.model,
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": message}],
-                "system": DECOMPOSE_PROMPT,
-            }
-            if "thinking" in self.model.lower():
-                kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2048}
-                kwargs["max_tokens"] = 4096
-            response = await self.client.messages.create(**kwargs)
-            text = ""
-            for block in response.content:
-                if block.type == "text":
-                    text += block.text
-
-            import json
-            text = text.strip()
+            response = await self.provider.create(
+                [{"role": "user", "content": message}],
+                system=DECOMPOSE_PROMPT,
+                max_tokens=1024,
+            )
+            text = response.text.strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             result = json.loads(text)
@@ -100,6 +90,15 @@ class SubAgentExecutor:
             logger.debug("Decomposition failed, treating as simple task", exc_info=True)
         return None
 
+    def _scoped_tools(self, skill: Skill | None) -> list[dict] | None:
+        if not self.tools_enabled:
+            return None
+        if skill and skill.tool_hints:
+            hint_set = set(skill.tool_hints)
+            scoped = [t for t in self.tool_definitions if t["name"] in hint_set]
+            return scoped or self.tool_definitions
+        return self.tool_definitions
+
     async def execute_subtask(
         self,
         task_desc: str,
@@ -109,8 +108,6 @@ class SubAgentExecutor:
         context: str = "",
     ) -> TaskResult:
         """Execute a single sub-task with focused prompt and iteration budget."""
-        from ai_engine import _serialize_content, _extract_text
-
         task_id = str(uuid.uuid4())[:8]
         result = TaskResult(task_id=task_id, skill_used=skill.name if skill else None)
         result.start()
@@ -121,63 +118,39 @@ class SubAgentExecutor:
         if context:
             system_prompt += f"\n\n## Context from previous steps\n{context}"
 
-        kwargs = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "system": system_prompt,
-        }
-
-        if "thinking" in self.model.lower():
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
-            if self.max_tokens < self.thinking_budget + 4096:
-                kwargs["max_tokens"] = self.thinking_budget + 4096
-
-        if self.tools_enabled:
-            if skill and skill.tool_hints:
-                hint_set = set(skill.tool_hints)
-                kwargs["tools"] = [
-                    t for t in self.tool_definitions
-                    if t["name"] in hint_set
-                ] or self.tool_definitions
-            else:
-                kwargs["tools"] = self.tool_definitions
-
+        tools = self._scoped_tools(skill)
         messages = [{"role": "user", "content": task_desc}]
 
         try:
             for iteration in range(max_iterations):
                 remaining = max_iterations - iteration - 1
-                if remaining <= 1:
-                    kwargs.pop("tools", None)
+                active_tools = None if remaining <= 1 else tools
 
-                kwargs["messages"] = messages
-                response = await self.client.messages.create(**kwargs)
+                response = await self.provider.create(
+                    messages, system=system_prompt, tools=active_tools,
+                )
                 result.tool_iterations = iteration + 1
-                result.token_usage.add(TokenUsage.from_api_response(response))
+                result.token_usage.add(response.usage)
 
-                if response.stop_reason == "tool_use":
+                if response.has_tool_calls:
                     messages.append({
                         "role": "assistant",
-                        "content": _serialize_content(response.content),
+                        "content": response.assistant_content,
                     })
 
-                    tool_results = []
-                    tool_tasks = []
-                    tool_ids = []
-
-                    for block in response.content:
-                        if block.type == "tool_use":
-                            tool_ids.append(block.id)
-                            tool_tasks.append(
-                                self.execute_tool_fn(
-                                    block.name, block.input,
-                                    self.workspace_dir, self.tool_timeout,
-                                    sender=sender,
-                                )
-                            )
+                    tool_ids = [tc.id for tc in response.tool_calls]
+                    tool_tasks = [
+                        self.execute_tool_fn(
+                            tc.name, tc.input,
+                            self.workspace_dir, self.tool_timeout,
+                            sender=sender,
+                        )
+                        for tc in response.tool_calls
+                    ]
 
                     results = await asyncio.gather(*tool_tasks, return_exceptions=True)
 
+                    tool_results = []
                     for i, (tool_id, tool_result) in enumerate(zip(tool_ids, results)):
                         content = str(tool_result) if isinstance(tool_result, Exception) else tool_result
                         if remaining <= 3 and i == len(tool_ids) - 1:
@@ -191,18 +164,14 @@ class SubAgentExecutor:
                     messages.append({"role": "user", "content": tool_results})
                     continue
 
-                text = _extract_text(response.content)
-                result.complete(text or "No response generated.")
+                result.complete(response.text or "No response generated.")
                 return result
 
             # Exhausted iterations — force final response
-            kwargs["messages"] = messages
-            kwargs.pop("tools", None)
             try:
-                final = await self.client.messages.create(**kwargs)
-                result.token_usage.add(TokenUsage.from_api_response(final))
-                text = _extract_text(final.content)
-                result.complete(text or "Sub-task completed but no summary generated.")
+                final = await self.provider.create(messages, system=system_prompt)
+                result.token_usage.add(final.usage)
+                result.complete(final.text or "Sub-task completed but no summary generated.")
             except Exception:
                 result.complete("Sub-task completed (max iterations reached).")
 
@@ -224,8 +193,6 @@ class SubAgentExecutor:
         Sequential sub-tasks (numbered) run in order with context passing.
         Independent sub-tasks run concurrently (up to MAX_CONCURRENT_SUBAGENTS).
         """
-        from ai_engine import _extract_text
-
         parent_result = TaskResult(task_id=str(uuid.uuid4())[:8])
         parent_result.start()
 
@@ -285,20 +252,12 @@ class SubAgentExecutor:
         combined = "\n\n---\n\n".join(synthesis_parts)
 
         try:
-            synth_kwargs = {
-                "model": self.model,
-                "max_tokens": self.max_tokens,
-                "system": "Synthesize the following sub-task results into a coherent, well-structured response for the user. Respond in the same language as the content.",
-                "messages": [{"role": "user", "content": combined}],
-            }
-            if "thinking" in self.model.lower():
-                synth_kwargs["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
-                if self.max_tokens < self.thinking_budget + 4096:
-                    synth_kwargs["max_tokens"] = self.thinking_budget + 4096
-            synth_response = await self.client.messages.create(**synth_kwargs)
-            parent_result.token_usage.add(TokenUsage.from_api_response(synth_response))
-            text = _extract_text(synth_response.content)
-            final_text = text or combined
+            synth_response = await self.provider.create(
+                [{"role": "user", "content": combined}],
+                system=SYNTHESIS_PROMPT,
+            )
+            parent_result.token_usage.add(synth_response.usage)
+            final_text = synth_response.text or combined
         except Exception:
             logger.exception("Synthesis failed, returning raw results")
             final_text = combined

@@ -57,6 +57,10 @@ def handle_command(
         lines = [
             f"Messages in history: {stats['total_messages']}",
             f"Current model: {current_model}",
+        ]
+        if ai_engine and hasattr(ai_engine, 'provider_name'):
+            lines.append(f"Provider: {ai_engine.provider_name}")
+        lines += [
             f"Custom system prompt: {'Yes' if prompt else 'No (using default)'}",
             f"Admin: {'Yes' if is_admin else 'No'}",
         ]
@@ -96,9 +100,13 @@ def handle_command(
 
     if cmd == "/model":
         if not arg:
-            return f"Current model: {current_model}", None
+            provider = getattr(ai_engine, "provider_name", "?") if ai_engine else "?"
+            return f"Current model: {current_model} (provider: {provider})", None
         if not is_admin:
             return "Only admins can change the model.", None
+        if ai_engine and hasattr(ai_engine, "set_model"):
+            ok, msg = ai_engine.set_model(arg.strip())
+            return msg, None
         config_update = {"model": arg}
         return f"Model switched to: {arg}", config_update
 

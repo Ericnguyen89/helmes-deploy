@@ -7,6 +7,40 @@ SIGNAL_API_URL = os.getenv("SIGNAL_API_URL", "http://signal-api:8080").rstrip("/
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "").strip() or None
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+
+# OpenAI (GPT) provider
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip() or None
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+# Google Gemini provider (via OpenAI-compatible endpoint)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "").strip() or None
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+# Active provider: "anthropic" (default) | "openai" | "gemini".
+# If unset, inferred from the configured model name.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip().lower()
+
+
+def _resolve_active_provider() -> str:
+    if LLM_PROVIDER in ("anthropic", "openai", "gemini"):
+        return LLM_PROVIDER
+    return "anthropic"
+
+
+# Per-provider credentials, used by the engine to build the active provider and
+# to support switching providers at runtime via /model.
+PROVIDER_CONFIGS = {
+    "anthropic": {"api_key": ANTHROPIC_API_KEY, "base_url": ANTHROPIC_BASE_URL, "model": ANTHROPIC_MODEL},
+    "openai": {"api_key": OPENAI_API_KEY, "base_url": OPENAI_BASE_URL, "model": OPENAI_MODEL},
+    "gemini": {"api_key": GEMINI_API_KEY, "base_url": GEMINI_BASE_URL, "model": GEMINI_MODEL},
+}
+
+ACTIVE_PROVIDER = _resolve_active_provider()
+# The model used at startup = the active provider's configured model.
+ACTIVE_MODEL = PROVIDER_CONFIGS[ACTIVE_PROVIDER]["model"]
+
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "4096"))
 AI_SYSTEM_PROMPT = os.getenv(
     "AI_SYSTEM_PROMPT",

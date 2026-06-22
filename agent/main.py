@@ -178,17 +178,23 @@ async def main():
     if not config.SIGNAL_PHONE_NUMBER:
         logger.error("SIGNAL_PHONE_NUMBER is not set")
         sys.exit(1)
-    if not config.ANTHROPIC_API_KEY:
-        logger.error("ANTHROPIC_API_KEY is not set")
+
+    active_cfg = config.PROVIDER_CONFIGS.get(config.ACTIVE_PROVIDER, {})
+    if not active_cfg.get("api_key"):
+        logger.error(
+            "No API key configured for active provider '%s'. "
+            "Set the corresponding *_API_KEY in .env.",
+            config.ACTIVE_PROVIDER,
+        )
         sys.exit(1)
 
     signal_client = SignalClient(config.SIGNAL_API_URL, config.SIGNAL_PHONE_NUMBER)
     ai = AIEngine(
-        api_key=config.ANTHROPIC_API_KEY,
-        model=config.ANTHROPIC_MODEL,
+        provider_name=config.ACTIVE_PROVIDER,
+        model=config.ACTIVE_MODEL,
         max_tokens=config.AI_MAX_TOKENS,
         default_system_prompt=config.AI_SYSTEM_PROMPT,
-        base_url=config.ANTHROPIC_BASE_URL,
+        provider_configs=config.PROVIDER_CONFIGS,
         tools_enabled=config.TOOLS_ENABLED,
         workspace_dir=config.WORKSPACE_DIR,
         thinking_budget=config.THINKING_BUDGET,
@@ -214,8 +220,9 @@ async def main():
     set_scheduler(scheduler)
 
     logger.info("Phone: %s", config.SIGNAL_PHONE_NUMBER)
-    logger.info("Model: %s", config.ANTHROPIC_MODEL)
-    logger.info("Base URL: %s", config.ANTHROPIC_BASE_URL or "https://api.anthropic.com (default)")
+    logger.info("Provider: %s", config.ACTIVE_PROVIDER)
+    logger.info("Model: %s", config.ACTIVE_MODEL)
+    logger.info("Base URL: %s", active_cfg.get("base_url") or "(provider default)")
     logger.info("Tools: %s (admin_only=%s)", config.TOOLS_ENABLED, config.TOOLS_ADMIN_ONLY)
     logger.info("Workspace: %s", config.WORKSPACE_DIR)
     logger.info("Allowed: %s", config.ALLOWED_NUMBERS)

@@ -11,7 +11,7 @@ SUMMARIZE_PROMPT = (
 
 
 async def summarize_conversation(
-    client,
+    provider,
     model: str,
     messages: list[dict],
     keep_recent: int = 6,
@@ -44,15 +44,14 @@ async def summarize_conversation(
         return messages
 
     try:
-        response = await client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=SUMMARIZE_PROMPT,
-            messages=summary_input + [
+        response = await provider.create(
+            summary_input + [
                 {"role": "user", "content": "Please summarize the conversation above."}
             ],
+            system=SUMMARIZE_PROMPT,
+            max_tokens=1024,
         )
-        summary_text = response.content[0].text
+        summary_text = response.text
         logger.info(
             "Summarized %d messages into %d chars, keeping %d recent",
             len(old_messages),

@@ -7,6 +7,7 @@ AI Agent framework sử dụng Signal làm giao diện chat, kết nối với C
 ## Tính năng
 
 ### Core
+- **Multi-Provider LLM**: Claude (Anthropic), GPT (OpenAI), và Gemini (Google) — đổi provider qua `.env` hoặc runtime bằng `/model`
 - **13 tools tích hợp**: bash, file read/write, python, web search, web fetch, email, memory, scheduler
 - **Plugin system**: Dễ dàng thêm tool mới bằng cách tạo file plugin
 - **Persistent memory**: Agent nhớ thông tin qua các cuộc hội thoại
@@ -25,8 +26,8 @@ AI Agent framework sử dụng Signal làm giao diện chat, kết nối với C
 ## Kiến trúc
 
 ```
-Signal App ──► Signal Server ──► signal-cli-rest-api ──► Helmes Agent ──► Claude API
-                                    (Docker)              (Python)
+Signal App ──► Signal Server ──► signal-cli-rest-api ──► Helmes Agent ──► LLM Provider
+                                    (Docker)              (Python)       Claude/GPT/Gemini
                                                              │
                                                  ┌───────────┼───────────┐
                                               SQLite      Plugins     Scheduler
@@ -95,11 +96,38 @@ nano .env
 | Biến | Mô tả |
 |---|---|
 | `SIGNAL_PHONE_NUMBER` | Số điện thoại Signal (VD: `+84901234567`) |
-| `ANTHROPIC_API_KEY` | API key Anthropic (hoặc key proxy) |
-| `ANTHROPIC_BASE_URL` | URL proxy bên thứ 3 (để trống = API chính thức) |
-| `ANTHROPIC_MODEL` | Model AI (VD: `claude-sonnet-4-20250514`, `claude-opus-4-6-thinking`) |
+| `LLM_PROVIDER` | Provider active: `anthropic` (mặc định) / `openai` / `gemini` |
 | `ADMIN_NUMBERS` | Số điện thoại admin, phân cách bằng dấu phẩy |
 | `ALLOWED_NUMBERS` | `*` = mọi người, hoặc danh sách số được phép |
+
+### Cấu hình Multi-Provider (Claude / OpenAI / Gemini)
+
+Helmes hỗ trợ 3 nhà cung cấp LLM. Đặt `LLM_PROVIDER` để chọn provider mặc định, và điền API key tương ứng. Bạn có thể đổi model/provider lúc đang chạy bằng lệnh `/model` (provider được tự động nhận diện từ tên model).
+
+| Provider | Biến | Mô tả | Mặc định |
+|---|---|---|---|
+| **Anthropic** | `ANTHROPIC_API_KEY` | API key (hoặc key proxy) | |
+| | `ANTHROPIC_BASE_URL` | URL proxy bên thứ 3 (để trống = API chính thức) | |
+| | `ANTHROPIC_MODEL` | VD: `claude-sonnet-4-20250514`, `claude-opus-4-6-thinking` | `claude-sonnet-4-20250514` |
+| **OpenAI** | `OPENAI_API_KEY` | API key OpenAI | |
+| | `OPENAI_BASE_URL` | URL tuỳ chỉnh (Azure/proxy) — để trống = chính thức | |
+| | `OPENAI_MODEL` | VD: `gpt-4o`, `gpt-4.1`, `o3-mini` | `gpt-4o` |
+| **Gemini** | `GEMINI_API_KEY` | API key ([lấy tại đây](https://aistudio.google.com/apikey)) | |
+| | `GEMINI_BASE_URL` | Để trống = endpoint OpenAI-compatible của Google | |
+| | `GEMINI_MODEL` | VD: `gemini-2.0-flash`, `gemini-1.5-pro` | `gemini-2.0-flash` |
+
+**Cách hoạt động:**
+- Claude dùng SDK Anthropic gốc (hỗ trợ thinking models).
+- OpenAI và Gemini đều dùng SDK OpenAI — Gemini có endpoint OpenAI-compatible nên dùng chung code.
+- Conversation history dùng format trung lập (canonical), mỗi provider tự convert → có thể **đổi provider giữa cuộc hội thoại** mà không mất context.
+
+**Ví dụ đổi model qua Signal (admin):**
+```
+/model gpt-4o                    → chuyển sang OpenAI GPT-4o
+/model gemini-2.0-flash          → chuyển sang Google Gemini
+/model claude-opus-4-6-thinking  → quay lại Claude (thinking)
+```
+> Lưu ý: muốn đổi sang provider nào thì API key của provider đó phải được cấu hình sẵn trong `.env`.
 
 ### Cấu hình tools
 
@@ -342,7 +370,12 @@ helmes-deploy/
 │   ├── main.py              # Entry point, polling loop
 │   ├── config.py            # Cấu hình từ biến môi trường
 │   ├── signal_client.py     # Client gửi/nhận tin & ảnh Signal
-│   ├── ai_engine.py         # Claude API + budget-aware tool loop
+│   ├── ai_engine.py         # Core engine + budget-aware tool loop (provider-agnostic)
+│   ├── providers/           # Multi-provider LLM layer
+│   │   ├── __init__.py      # Factory + provider detection
+│   │   ├── base.py          # LLMProvider ABC + canonical types
+│   │   ├── anthropic_provider.py  # Claude (native SDK)
+│   │   └── openai_provider.py     # OpenAI + Gemini (OpenAI-compatible)
 │   ├── sub_agent.py         # Sub-agent decomposition executor
 │   ├── task_result.py       # Structured task result + token tracking
 │   ├── store.py             # SQLite lưu hội thoại

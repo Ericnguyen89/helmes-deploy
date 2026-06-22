@@ -1,8 +1,6 @@
 import asyncio
 import logging
 
-from anthropic import AsyncAnthropic
-
 from tools import TOOL_DEFINITIONS, execute_tool_async
 from summarizer import summarize_conversation
 from memory import MemoryStore
@@ -10,46 +8,19 @@ from planner import get_enhanced_system_prompt
 from skills import SkillRegistry
 from task_result import TaskResult, TokenUsage
 from sub_agent import SubAgentExecutor
+from providers import create_provider, detect_provider
 
 logger = logging.getLogger(__name__)
-
-
-def _serialize_content(content_blocks) -> list[dict]:
-    result = []
-    for block in content_blocks:
-        if block.type == "thinking":
-            d = {"type": "thinking", "thinking": block.thinking}
-            if hasattr(block, "signature") and block.signature:
-                d["signature"] = block.signature
-            result.append(d)
-        elif block.type == "text":
-            result.append({"type": "text", "text": block.text})
-        elif block.type == "tool_use":
-            result.append({
-                "type": "tool_use",
-                "id": block.id,
-                "name": block.name,
-                "input": block.input,
-            })
-    return result
-
-
-def _extract_text(content_blocks) -> str:
-    parts = []
-    for block in content_blocks:
-        if block.type == "text" and block.text.strip():
-            parts.append(block.text)
-    return "\n".join(parts) if parts else ""
 
 
 class AIEngine:
     def __init__(
         self,
-        api_key: str,
+        provider_name: str,
         model: str,
         max_tokens: int,
         default_system_prompt: str,
-        base_url: str | None = None,
+        provider_configs: dict[str, dict] | None = None,
         tools_enabled: bool = False,
         workspace_dir: str = "/workspace",
         thinking_budget: int = 10000,
@@ -59,13 +30,12 @@ class AIEngine:
         context_keep_recent: int = 6,
         summarize_model: str | None = None,
     ):
-        kwargs = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
-        self.client = AsyncAnthropic(**kwargs)
+        self.provider_name = provider_name
         self.model = model
         self.max_tokens = max_tokens
         self.default_system_prompt = default_system_prompt
+        # Per-provider credentials, used to switch providers at runtime.
+        self.provider_configs = provider_configs or {}
         self.tools_enabled = tools_enabled
         self.workspace_dir = workspace_dir
         self.thinking_budget = thinking_budget
@@ -76,44 +46,53 @@ class AIEngine:
         self.summarize_model = summarize_model
         self.memory_store: MemoryStore | None = None
         self.skill_registry = SkillRegistry()
-        self.sub_agent = SubAgentExecutor(
-            client=self.client,
-            model=self.model,
+        self.provider = self._build_provider(provider_name, model)
+        self.sub_agent = self._build_sub_agent()
+        self._last_task_result: TaskResult | None = None
+
+    def _build_provider(self, provider_name: str, model: str):
+        cfg = self.provider_configs.get(provider_name, {})
+        return create_provider(
+            provider_name,
+            api_key=cfg.get("api_key", ""),
+            model=model,
+            base_url=cfg.get("base_url"),
             max_tokens=self.max_tokens,
+            thinking_budget=self.thinking_budget,
+        )
+
+    def _build_sub_agent(self) -> SubAgentExecutor:
+        return SubAgentExecutor(
+            provider=self.provider,
             tools_enabled=self.tools_enabled,
             tool_definitions=TOOL_DEFINITIONS,
             workspace_dir=self.workspace_dir,
             tool_timeout=self.tool_timeout,
-            thinking_budget=self.thinking_budget,
             execute_tool_fn=execute_tool_async,
         )
-        self._last_task_result: TaskResult | None = None
 
-    def _is_thinking_model(self) -> bool:
-        return "thinking" in self.model.lower()
+    def set_model(self, model: str) -> tuple[bool, str]:
+        """Switch model (and provider, if the model belongs to another one).
 
-    def _build_kwargs(self, messages, system_prompt, use_tools):
-        kwargs = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "messages": messages,
-        }
-
-        if self._is_thinking_model():
-            kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget,
-            }
-            if self.max_tokens < self.thinking_budget + 4096:
-                kwargs["max_tokens"] = self.thinking_budget + 4096
-
-        if system_prompt:
-            kwargs["system"] = system_prompt
-
-        if use_tools:
-            kwargs["tools"] = TOOL_DEFINITIONS
-
-        return kwargs
+        Returns (success, message). The provider is inferred from the model name;
+        switching requires that provider's API key to be configured.
+        """
+        provider_name = detect_provider(model) or self.provider_name
+        cfg = self.provider_configs.get(provider_name, {})
+        if not cfg.get("api_key"):
+            return False, (
+                f"Cannot switch to {model}: no API key configured for provider "
+                f"'{provider_name}'. Set the corresponding *_API_KEY in .env."
+            )
+        try:
+            self.provider_name = provider_name
+            self.model = model
+            self.provider = self._build_provider(provider_name, model)
+            self.sub_agent = self._build_sub_agent()
+        except Exception as e:
+            logger.exception("Failed to switch model")
+            return False, f"Failed to switch model: {e}"
+        return True, f"Model switched to: {model} (provider: {provider_name})"
 
     def _budget_note(self, iteration: int) -> str:
         remaining = self.max_tool_iterations - iteration - 1
@@ -187,14 +166,14 @@ class AIEngine:
             if len(messages) > self.context_summarize_threshold:
                 summary_model = self.summarize_model or self.model
                 messages = await summarize_conversation(
-                    self.client,
+                    self.provider,
                     summary_model,
                     messages,
                     keep_recent=self.context_keep_recent,
                 )
                 logger.info("Context summarized: %d messages remaining", len(messages))
 
-            kwargs = self._build_kwargs(messages, system_prompt, use_tools)
+            tools = TOOL_DEFINITIONS if use_tools else None
             current_messages = list(messages)
             task_result = TaskResult(task_id="main")
             task_result.start()
@@ -204,40 +183,34 @@ class AIEngine:
             for iteration in range(self.max_tool_iterations):
                 remaining = self.max_tool_iterations - iteration - 1
                 force_respond = remaining <= 1
-                if force_respond:
-                    kwargs.pop("tools", None)
+                active_tools = None if force_respond else tools
 
-                kwargs["messages"] = current_messages
-                response = await self.client.messages.create(**kwargs)
-                task_result.token_usage.add(TokenUsage.from_api_response(response))
+                response = await self.provider.create(
+                    current_messages, system=system_prompt, tools=active_tools,
+                )
+                task_result.token_usage.add(response.usage)
                 task_result.tool_iterations = iteration + 1
 
-                if response.stop_reason == "tool_use":
+                if response.has_tool_calls:
                     current_messages.append({
                         "role": "assistant",
-                        "content": _serialize_content(response.content),
+                        "content": response.assistant_content,
                     })
 
-                    tool_results = []
-                    tool_tasks = []
-                    tool_ids = []
-
-                    for block in response.content:
-                        if block.type == "tool_use":
-                            tool_ids.append(block.id)
-                            tool_tasks.append(
-                                execute_tool_async(
-                                    block.name,
-                                    block.input,
-                                    self.workspace_dir,
-                                    self.tool_timeout,
-                                    sender=sender,
-                                )
-                            )
+                    tool_ids = [tc.id for tc in response.tool_calls]
+                    tool_tasks = [
+                        execute_tool_async(
+                            tc.name, tc.input,
+                            self.workspace_dir, self.tool_timeout,
+                            sender=sender,
+                        )
+                        for tc in response.tool_calls
+                    ]
 
                     results = await asyncio.gather(*tool_tasks, return_exceptions=True)
 
                     budget_note = self._budget_note(iteration)
+                    tool_results = []
                     for i, (tool_id, result) in enumerate(zip(tool_ids, results)):
                         content = str(result) if isinstance(result, Exception) else result
                         if budget_note and i == len(tool_ids) - 1:
@@ -262,7 +235,7 @@ class AIEngine:
                     )
                     continue
 
-                text = _extract_text(response.content)
+                text = response.text
                 if text:
                     task_result.complete(text)
                     self._last_task_result = task_result
@@ -271,12 +244,10 @@ class AIEngine:
                 return "[Helmes] No response generated."
 
             logger.warning("Reached max tool iterations (%d)", self.max_tool_iterations)
-            kwargs["messages"] = current_messages
-            kwargs.pop("tools", None)
             try:
-                final = await self.client.messages.create(**kwargs)
-                task_result.token_usage.add(TokenUsage.from_api_response(final))
-                text = _extract_text(final.content)
+                final = await self.provider.create(current_messages, system=system_prompt)
+                task_result.token_usage.add(final.usage)
+                text = final.text
                 if text:
                     task_result.complete(text)
                     self._last_task_result = task_result
